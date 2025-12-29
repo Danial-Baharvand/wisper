@@ -15,11 +15,12 @@ public class LocalLLMPolishService : IPolishService
     private readonly ModelInfo _model;
     private LLamaWeights? _weights;
     private LLamaContext? _context;
+    private InteractiveExecutor? _executor;  // Keep executor warm between calls
     private bool _isInitialized;
     private bool _initializationFailed;
 
     public string ModelId => _model.Id;
-    public bool IsReady => _isInitialized && _context != null;
+    public bool IsReady => _isInitialized && _executor != null;
 
     public LocalLLMPolishService(ILogger logger, ModelManager modelManager, ModelInfo model)
     {
@@ -48,6 +49,7 @@ public class LocalLLMPolishService : IPolishService
                 };
                 _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
+                _executor = new InteractiveExecutor(_context);  // Create executor once at load
             }, cancellationToken);
             _isInitialized = true;
             _logger.LogInformation("LLM loaded successfully");
@@ -62,7 +64,6 @@ public class LocalLLMPolishService : IPolishService
 
     private string BuildPrompt(string text)
     {
-        // Use XML tags for structured output - easier to parse
         var instruction = "Fix punctuation/capitalization. Remove filler words (um, uh, like). Output ONLY the result inside <result></result> tags.";
         
         return _model.PromptTemplate switch
@@ -77,7 +78,6 @@ public class LocalLLMPolishService : IPolishService
 
     private string[] GetStopTokens()
     {
-        // Always include </result> as primary stop token
         return _model.PromptTemplate switch
         {
             "gemma" => new[] { "</result>", "<end_of_turn>", "<start_of_turn>" },
@@ -92,17 +92,14 @@ public class LocalLLMPolishService : IPolishService
     {
         if (string.IsNullOrWhiteSpace(output)) return originalText;
         
-        // Try to extract content from <result> tags
         var resultMatch = Regex.Match(output, @"<result>\s*(.*?)\s*(?:</result>|$)", RegexOptions.Singleline);
         if (resultMatch.Success && !string.IsNullOrWhiteSpace(resultMatch.Groups[1].Value))
         {
             output = resultMatch.Groups[1].Value.Trim();
         }
         
-        // Remove any remaining XML tags
         output = Regex.Replace(output, @"<[^>]+>", "").Trim();
         
-        // Remove common preambles
         var preambles = new[] {
             "Sure, here is", "Here is the", "Here's the", "The corrected", "Corrected:",
             "Output:", "Result:", "Fixed:", "Cleaned:"
@@ -118,7 +115,6 @@ public class LocalLLMPolishService : IPolishService
             }
         }
         
-        // Remove quotes if wrapped
         output = output.Trim();
         if ((output.StartsWith("\"") && output.EndsWith("\"")) || 
             (output.StartsWith("'") && output.EndsWith("'")))
@@ -130,7 +126,7 @@ public class LocalLLMPolishService : IPolishService
     public async Task<string> PolishAsync(string rawText, bool notesMode = false, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText)) return rawText;
-        if (_context == null || _weights == null) return rawText;
+        if (_executor == null || _context == null) return rawText;
 
         _logger.LogInformation("Polishing with {Model}", _model.Name);
         var startTime = DateTime.UtcNow;
@@ -138,7 +134,6 @@ public class LocalLLMPolishService : IPolishService
         try
         {
             var prompt = BuildPrompt(rawText);
-            var executor = new StatelessExecutor(_weights, _context.Params);
             var inferenceParams = new InferenceParams 
             { 
                 MaxTokens = 200, 
@@ -146,14 +141,22 @@ public class LocalLLMPolishService : IPolishService
                 AntiPrompts = GetStopTokens()
             };
 
-            var result = new StringBuilder();
-            await foreach (var token in executor.InferAsync(prompt, inferenceParams, cancellationToken))
+            // Run inference completely off the UI thread to prevent freezing
+            var resultText = await Task.Run(async () =>
             {
-                result.Append(token);
-                if (result.Length > rawText.Length * 3) break;
-            }
+                // Clear KV cache for fresh inference each time
+                _context.NativeHandle.KvCacheClear();
+                
+                var result = new StringBuilder();
+                await foreach (var token in _executor.InferAsync(prompt, inferenceParams, cancellationToken))
+                {
+                    result.Append(token);
+                    if (result.Length > rawText.Length * 3) break;
+                }
+                return result.ToString();
+            }, cancellationToken);
             
-            var polished = ExtractResult(result.ToString(), rawText);
+            var polished = ExtractResult(resultText, rawText);
             
             var elapsed = DateTime.UtcNow - startTime;
             _logger.LogInformation("Polish done in {Time:F1}s", elapsed.TotalSeconds);
@@ -169,6 +172,7 @@ public class LocalLLMPolishService : IPolishService
 
     public void Dispose()
     {
+        _executor = null;
         _context?.Dispose();
         _weights?.Dispose();
         _context = null;
