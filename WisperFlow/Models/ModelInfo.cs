@@ -52,11 +52,12 @@ public static class ModelCatalog
         SizeBytes = 0
     };
     
+    // Multilingual models
     public static readonly ModelInfo WhisperTiny = new()
     {
         Id = "whisper-tiny",
         Name = "Whisper Tiny",
-        Description = "Fastest, lower accuracy (39M params)",
+        Description = "Fastest, multilingual (39M params)",
         Type = ModelType.Whisper,
         Source = ModelSource.Local,
         SizeBytes = 75_000_000,
@@ -68,10 +69,10 @@ public static class ModelCatalog
     {
         Id = "whisper-base",
         Name = "Whisper Base",
-        Description = "Good balance of speed and accuracy (74M params)",
+        Description = "Good balance, multilingual (74M params)",
         Type = ModelType.Whisper,
         Source = ModelSource.Local,
-        SizeBytes = 150_000_000,
+        SizeBytes = 142_000_000,
         DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
         FileName = "ggml-base.bin"
     };
@@ -80,12 +81,86 @@ public static class ModelCatalog
     {
         Id = "whisper-small",
         Name = "Whisper Small",
-        Description = "Better accuracy, slower (244M params)",
+        Description = "Better accuracy, multilingual (244M params)",
         Type = ModelType.Whisper,
         Source = ModelSource.Local,
-        SizeBytes = 500_000_000,
+        SizeBytes = 466_000_000,
         DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
         FileName = "ggml-small.bin"
+    };
+    
+    // English-only models (faster for English)
+    public static readonly ModelInfo WhisperTinyEn = new()
+    {
+        Id = "whisper-tiny-en",
+        Name = "Whisper Tiny (EN)",
+        Description = "Fastest, English-only (39M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 75_000_000,
+        DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+        FileName = "ggml-tiny.en.bin"
+    };
+    
+    public static readonly ModelInfo WhisperBaseEn = new()
+    {
+        Id = "whisper-base-en",
+        Name = "Whisper Base (EN)",
+        Description = "Good balance, English-only (74M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 142_000_000,
+        DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+        FileName = "ggml-base.en.bin"
+    };
+    
+    public static readonly ModelInfo WhisperSmallEn = new()
+    {
+        Id = "whisper-small-en",
+        Name = "Whisper Small (EN)",
+        Description = "Better accuracy, English-only (244M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 466_000_000,
+        DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+        FileName = "ggml-small.en.bin"
+    };
+    
+    public static readonly ModelInfo WhisperMediumEn = new()
+    {
+        Id = "whisper-medium-en",
+        Name = "Whisper Medium (EN)",
+        Description = "High accuracy, English-only (769M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 1_500_000_000,
+        DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+        FileName = "ggml-medium.en.bin"
+    };
+    
+    // Large/Turbo models
+    public static readonly ModelInfo WhisperLargeV3Turbo = new()
+    {
+        Id = "whisper-large-v3-turbo",
+        Name = "Whisper Large-v3 Turbo",
+        Description = "8x faster than Large, near-same accuracy (809M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 1_600_000_000,
+        DownloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+        FileName = "ggml-large-v3-turbo.bin"
+    };
+    
+    public static readonly ModelInfo DistilWhisperLargeV3 = new()
+    {
+        Id = "distil-whisper-large-v3",
+        Name = "Distil-Whisper Large-v3",
+        Description = "6x faster, English-only, 1% WER of original",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Local,
+        SizeBytes = 1_500_000_000,
+        DownloadUrl = "https://huggingface.co/distil-whisper/distil-large-v3.5-ggml/resolve/main/ggml-model.bin",
+        FileName = "ggml-distil-large-v3.bin"
     };
     
     // ===== LLM MODELS =====
@@ -208,7 +283,14 @@ public static class ModelCatalog
     
     public static IReadOnlyList<ModelInfo> WhisperModels { get; } = new[]
     {
-        OpenAIWhisper, WhisperTiny, WhisperBase, WhisperSmall
+        OpenAIWhisper,
+        // English-only models (recommended for English)
+        WhisperTinyEn, WhisperBaseEn, WhisperSmallEn, WhisperMediumEn,
+        DistilWhisperLargeV3,
+        // Faster large model
+        WhisperLargeV3Turbo,
+        // Multilingual models
+        WhisperTiny, WhisperBase, WhisperSmall
     };
     
     public static IReadOnlyList<ModelInfo> LLMModels { get; } = new[]
