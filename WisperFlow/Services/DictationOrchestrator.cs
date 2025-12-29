@@ -1,83 +1,117 @@
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.Polish;
+using WisperFlow.Services.Transcription;
 
 namespace WisperFlow.Services;
 
 /// <summary>
 /// Orchestrates the entire dictation flow: hotkey -> record -> transcribe -> polish -> inject.
-/// Acts as the central coordinator between all services.
 /// </summary>
 public class DictationOrchestrator
 {
     private readonly HotkeyManager _hotkeyManager;
     private readonly AudioRecorder _audioRecorder;
-    private readonly OpenAITranscriptionClient _transcriptionClient;
-    private readonly TextPolisher _textPolisher;
     private readonly TextInjector _textInjector;
     private readonly OverlayWindow _overlayWindow;
     private readonly SettingsManager _settingsManager;
+    private readonly ServiceFactory _serviceFactory;
     private readonly ILogger<DictationOrchestrator> _logger;
 
+    private ITranscriptionService? _transcriptionService;
+    private IPolishService? _polishService;
     private CancellationTokenSource? _currentOperationCts;
     private bool _isEnabled = true;
     private bool _isProcessing;
+    private bool _servicesInitializing;
 
     public DictationOrchestrator(
         HotkeyManager hotkeyManager,
         AudioRecorder audioRecorder,
-        OpenAITranscriptionClient transcriptionClient,
-        TextPolisher textPolisher,
         TextInjector textInjector,
         OverlayWindow overlayWindow,
         SettingsManager settingsManager,
+        ServiceFactory serviceFactory,
         ILogger<DictationOrchestrator> logger)
     {
         _hotkeyManager = hotkeyManager;
         _audioRecorder = audioRecorder;
-        _transcriptionClient = transcriptionClient;
-        _textPolisher = textPolisher;
         _textInjector = textInjector;
         _overlayWindow = overlayWindow;
         _settingsManager = settingsManager;
+        _serviceFactory = serviceFactory;
         _logger = logger;
 
-        // Wire up event handlers
         _hotkeyManager.RecordStart += OnRecordStart;
         _hotkeyManager.RecordStop += OnRecordStop;
         _audioRecorder.MaxDurationReached += OnMaxDurationReached;
         _audioRecorder.RecordingProgress += OnRecordingProgress;
     }
 
-    /// <summary>
-    /// Applies settings to all services.
-    /// </summary>
     public void ApplySettings(AppSettings settings)
     {
         _isEnabled = settings.HotkeyEnabled;
         _audioRecorder.SetMaxDuration(settings.MaxRecordingDurationSeconds);
 
-        // Set microphone device if specified
-        if (!string.IsNullOrEmpty(settings.MicrophoneDeviceId))
+        if (!string.IsNullOrEmpty(settings.MicrophoneDeviceId) && 
+            int.TryParse(settings.MicrophoneDeviceId, out int deviceNumber))
         {
-            if (int.TryParse(settings.MicrophoneDeviceId, out int deviceNumber))
-            {
-                _audioRecorder.SetDevice(deviceNumber);
-            }
+            _audioRecorder.SetDevice(deviceNumber);
         }
 
-        _logger.LogInformation("Settings applied: Enabled={Enabled}, Polish={Polish}, NotesMode={Notes}",
-            settings.HotkeyEnabled, settings.PolishOutput, settings.NotesMode);
+        // Update services if model changed
+        if (_transcriptionService?.ModelId != settings.TranscriptionModelId)
+        {
+            _transcriptionService?.Dispose();
+            _transcriptionService = _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
+            _logger.LogInformation("Transcription model: {Model}", settings.TranscriptionModelId);
+        }
+
+        if (_polishService?.ModelId != settings.PolishModelId)
+        {
+            _polishService?.Dispose();
+            _polishService = _serviceFactory.CreatePolishService(settings.PolishModelId);
+            _logger.LogInformation("Polish model: {Model}", settings.PolishModelId);
+        }
+
+        _logger.LogInformation("Settings applied: Enabled={Enabled}, Polish={Polish}", 
+            settings.HotkeyEnabled, settings.PolishOutput);
     }
 
-    /// <summary>
-    /// Enables or disables dictation.
-    /// </summary>
+    public async Task InitializeServicesAsync()
+    {
+        var settings = _settingsManager.CurrentSettings;
+        _transcriptionService = _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
+        _polishService = _serviceFactory.CreatePolishService(settings.PolishModelId);
+
+        // Pre-initialize Whisper only (LLM is loaded on demand due to size)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _servicesInitializing = true;
+                if (_transcriptionService is LocalWhisperService)
+                {
+                    _logger.LogInformation("Pre-loading Whisper model...");
+                    await _transcriptionService.InitializeAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to pre-initialize services");
+            }
+            finally
+            {
+                _servicesInitializing = false;
+            }
+        });
+    }
+
     public void SetEnabled(bool enabled)
     {
         _isEnabled = enabled;
         if (!enabled && _audioRecorder.IsRecording)
         {
-            // Cancel current operation
             _currentOperationCts?.Cancel();
             _audioRecorder.StopRecording();
             _overlayWindow.Hide();
@@ -85,9 +119,6 @@ public class DictationOrchestrator
         _logger.LogInformation("Dictation {State}", enabled ? "enabled" : "disabled");
     }
 
-    /// <summary>
-    /// Updates hotkey configuration.
-    /// </summary>
     public void UpdateHotkey(HotkeyModifiers modifiers, int key)
     {
         _hotkeyManager.UnregisterHotkey();
@@ -96,10 +127,10 @@ public class DictationOrchestrator
 
     private void OnRecordStart(object? sender, EventArgs e)
     {
-        if (!_isEnabled || _isProcessing)
+        if (!_isEnabled || _isProcessing) return;
+        if (_servicesInitializing)
         {
-            _logger.LogDebug("Recording start ignored: Enabled={Enabled}, Processing={Processing}",
-                _isEnabled, _isProcessing);
+            _overlayWindow.ShowError("Models loading...");
             return;
         }
 
@@ -119,10 +150,7 @@ public class DictationOrchestrator
 
     private async void OnRecordStop(object? sender, EventArgs e)
     {
-        if (!_audioRecorder.IsRecording)
-        {
-            return;
-        }
+        if (!_audioRecorder.IsRecording) return;
 
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
@@ -134,15 +162,8 @@ public class DictationOrchestrator
         await ProcessRecordingAsync(audioFilePath);
     }
 
-    private void OnMaxDurationReached(object? sender, EventArgs e)
-    {
-        _overlayWindow.ShowError("Max duration reached");
-    }
-
-    private void OnRecordingProgress(object? sender, TimeSpan duration)
-    {
-        _overlayWindow.UpdateRecordingTime(duration);
-    }
+    private void OnMaxDurationReached(object? sender, EventArgs e) => _overlayWindow.ShowError("Max duration reached");
+    private void OnRecordingProgress(object? sender, TimeSpan duration) => _overlayWindow.UpdateRecordingTime(duration);
 
     private async Task ProcessRecordingAsync(string audioFilePath)
     {
@@ -152,87 +173,70 @@ public class DictationOrchestrator
 
         try
         {
-            _overlayWindow.ShowTranscribing();
-            _logger.LogInformation("Processing recording...");
+            _transcriptionService ??= _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
+            _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
 
-            // Transcribe
-            var transcript = await _transcriptionClient.TranscribeAsync(
+            // Initialize if needed
+            if (!_transcriptionService.IsReady)
+            {
+                _overlayWindow.ShowTranscribing("Loading model...");
+                await _transcriptionService.InitializeAsync(cts?.Token ?? CancellationToken.None);
+            }
+
+            _overlayWindow.ShowTranscribing();
+            _logger.LogInformation("Processing with {Model}...", _transcriptionService.ModelId);
+
+            var transcript = await _transcriptionService.TranscribeAsync(
                 audioFilePath,
-                settings.Language,
-                settings.CustomPrompt,
+                settings.Language == "auto" ? null : settings.Language,
                 cts?.Token ?? CancellationToken.None);
 
             if (string.IsNullOrWhiteSpace(transcript))
             {
-                _logger.LogWarning("Transcription returned empty");
                 _overlayWindow.ShowError("No speech detected");
                 return;
             }
 
-            _logger.LogDebug("Raw transcript: {Length} chars", transcript.Length);
+            _logger.LogDebug("Transcript: {Len} chars", transcript.Length);
 
-            // Polish if enabled
             var finalText = transcript;
-            if (settings.PolishOutput)
+            if (settings.PolishOutput && _polishService.ModelId != "polish-disabled")
             {
+                if (!_polishService.IsReady)
+                {
+                    _overlayWindow.ShowPolishing("Loading model...");
+                    await _polishService.InitializeAsync(cts?.Token ?? CancellationToken.None);
+                }
+
                 _overlayWindow.ShowPolishing();
-                finalText = await _textPolisher.PolishAsync(
-                    transcript,
-                    settings.NotesMode,
-                    cts?.Token ?? CancellationToken.None);
-                _logger.LogDebug("Polished text: {Length} chars", finalText.Length);
+                finalText = await _polishService.PolishAsync(transcript, settings.NotesMode, cts?.Token ?? CancellationToken.None);
+                _logger.LogDebug("Polished: {Len} chars", finalText.Length);
             }
 
-            // Inject text
             _overlayWindow.Hide();
             await _textInjector.InjectTextAsync(finalText, cts?.Token ?? CancellationToken.None);
-
-            _logger.LogInformation("Dictation complete, injected {Length} chars", finalText.Length);
+            _logger.LogInformation("Injected {Len} chars", finalText.Length);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Dictation cancelled");
             _overlayWindow.Hide();
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Dictation failed: {Message}", ex.Message);
-            _overlayWindow.ShowError(TruncateError(ex.Message));
-        }
-        catch (System.Net.Http.HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Network error during dictation: {Message}", ex.Message);
-            var message = ex.StatusCode.HasValue 
-                ? $"Network error ({(int)ex.StatusCode}): {ex.Message}"
-                : $"Network error: {ex.Message}";
-            _overlayWindow.ShowError(TruncateError(message));
+            _logger.LogWarning(ex, "Dictation failed: {Msg}", ex.Message);
+            _overlayWindow.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Dictation failed unexpectedly: {Type} - {Message}", ex.GetType().Name, ex.Message);
-            _overlayWindow.ShowError($"Error: {TruncateError(ex.Message)}");
+            _logger.LogError(ex, "Dictation error: {Msg}", ex.Message);
+            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
         }
         finally
         {
             _isProcessing = false;
-            
-            // Clean up temp file
             _audioRecorder.DeleteTempFile(audioFilePath);
-            
-            // Dispose CTS
-            if (cts == _currentOperationCts)
-            {
-                _currentOperationCts = null;
-            }
+            if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();
         }
     }
-
-    private static string TruncateError(string message)
-    {
-        // Truncate for overlay display (max ~60 chars)
-        if (message.Length <= 60) return message;
-        return message[..57] + "...";
-    }
 }
-

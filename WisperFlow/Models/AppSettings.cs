@@ -61,6 +61,16 @@ public class AppSettings
     /// Custom prompt/vocabulary hint for Whisper.
     /// </summary>
     public string CustomPrompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Selected transcription model ID.
+    /// </summary>
+    public string TranscriptionModelId { get; set; } = "openai-whisper";
+
+    /// <summary>
+    /// Selected polish/LLM model ID.
+    /// </summary>
+    public string PolishModelId { get; set; } = "openai-gpt4o-mini";
 }
 
 /// <summary>

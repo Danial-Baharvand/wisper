@@ -60,13 +60,13 @@ public partial class OverlayWindow : Window
     /// <summary>
     /// Shows the transcribing state with spinning indicator.
     /// </summary>
-    public void ShowTranscribing()
+    public void ShowTranscribing(string? message = null)
     {
         Dispatcher.Invoke(() =>
         {
             HideAllPanels();
             TranscribingPanel.Visibility = Visibility.Visible;
-            TranscribingText.Text = "Transcribing...";
+            TranscribingText.Text = message ?? "Transcribing...";
             
             _pulseAnimation?.Stop();
             _spinAnimation?.Begin();
@@ -77,11 +77,11 @@ public partial class OverlayWindow : Window
     /// <summary>
     /// Shows the polishing state.
     /// </summary>
-    public void ShowPolishing()
+    public void ShowPolishing(string? message = null)
     {
         Dispatcher.Invoke(() =>
         {
-            TranscribingText.Text = "Polishing...";
+            TranscribingText.Text = message ?? "Polishing...";
         });
     }
 

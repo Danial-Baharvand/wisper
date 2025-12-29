@@ -15,6 +15,7 @@ public partial class SettingsWindow : Window
     private readonly SettingsManager _settingsManager;
     private readonly DictationOrchestrator _orchestrator;
     private readonly AudioRecorder _audioRecorder;
+    private readonly ModelManager _modelManager;
     private AppSettings _settings;
     private bool _isCapturingHotkey;
     private HotkeyModifiers _capturedModifiers;
@@ -22,18 +23,21 @@ public partial class SettingsWindow : Window
     public SettingsWindow(
         SettingsManager settingsManager,
         DictationOrchestrator orchestrator,
-        AudioRecorder audioRecorder)
+        AudioRecorder audioRecorder,
+        ModelManager modelManager)
     {
         InitializeComponent();
 
         _settingsManager = settingsManager;
         _orchestrator = orchestrator;
         _audioRecorder = audioRecorder;
+        _modelManager = modelManager;
         _settings = settingsManager.CurrentSettings;
 
         LoadSettings();
         PopulateMicrophones();
         PopulateLanguages();
+        PopulateModels();
         UpdateApiKeyStatus();
     }
 
@@ -113,14 +117,74 @@ public partial class SettingsWindow : Window
         
         if (hasKey)
         {
-            ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170)); // Accent green
+            ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170));
             ApiKeyStatusText.Text = "API key configured";
         }
         else
         {
-            ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87)); // Warning red
+            ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
             ApiKeyStatusText.Text = "No API key found";
         }
+    }
+
+    private void PopulateModels()
+    {
+        // Transcription models
+        TranscriptionModelComboBox.Items.Clear();
+        foreach (var model in ModelCatalog.WhisperModels)
+        {
+            var installed = _modelManager.IsModelInstalled(model);
+            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
+            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
+            TranscriptionModelComboBox.Items.Add(item);
+            if (_settings.TranscriptionModelId == model.Id)
+                TranscriptionModelComboBox.SelectedItem = item;
+        }
+        if (TranscriptionModelComboBox.SelectedItem == null)
+            TranscriptionModelComboBox.SelectedIndex = 0;
+        
+        // Polish models
+        PolishModelComboBox.Items.Clear();
+        foreach (var model in ModelCatalog.LLMModels)
+        {
+            var installed = _modelManager.IsModelInstalled(model);
+            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
+            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
+            PolishModelComboBox.Items.Add(item);
+            if (_settings.PolishModelId == model.Id)
+                PolishModelComboBox.SelectedItem = item;
+        }
+        if (PolishModelComboBox.SelectedItem == null)
+            PolishModelComboBox.SelectedIndex = 0;
+        
+        UpdateModelDescriptions();
+    }
+
+    private void UpdateModelDescriptions()
+    {
+        if (TranscriptionModelComboBox.SelectedItem is ComboBoxItem ti && ti.Tag is string tid)
+        {
+            var model = ModelCatalog.GetById(tid);
+            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            TranscriptionModelDesc.Text = (model?.Description ?? "") + status;
+        }
+        
+        if (PolishModelComboBox.SelectedItem is ComboBoxItem pi && pi.Tag is string pid)
+        {
+            var model = ModelCatalog.GetById(pid);
+            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            PolishModelDesc.Text = (model?.Description ?? "") + status;
+        }
+    }
+
+    private void TranscriptionModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
+    private void PolishModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
+
+    private void ManageModels_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ModelManagerWindow(_modelManager) { Owner = this };
+        if (dialog.ShowDialog() == true)
+            PopulateModels();
     }
 
     private string FormatHotkey(HotkeyModifiers modifiers)
@@ -211,15 +275,17 @@ public partial class SettingsWindow : Window
 
         // Microphone
         if (MicrophoneComboBox.SelectedItem is ComboBoxItem micItem)
-        {
             _settings.MicrophoneDeviceId = micItem.Tag?.ToString() ?? "";
-        }
 
         // Language
         if (LanguageComboBox.SelectedItem is ComboBoxItem langItem)
-        {
             _settings.Language = langItem.Tag?.ToString() ?? "auto";
-        }
+
+        // Models
+        if (TranscriptionModelComboBox.SelectedItem is ComboBoxItem transItem)
+            _settings.TranscriptionModelId = transItem.Tag?.ToString() ?? "openai-whisper";
+        if (PolishModelComboBox.SelectedItem is ComboBoxItem polishItem)
+            _settings.PolishModelId = polishItem.Tag?.ToString() ?? "openai-gpt4o-mini";
 
         // Save settings
         _settingsManager.SaveSettings(_settings);

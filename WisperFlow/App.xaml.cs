@@ -10,11 +10,11 @@ public partial class App : Application
     private TrayIconManager? _trayIconManager;
     private HotkeyManager? _hotkeyManager;
     private AudioRecorder? _audioRecorder;
-    private OpenAITranscriptionClient? _transcriptionClient;
-    private TextPolisher? _textPolisher;
     private TextInjector? _textInjector;
     private SettingsManager? _settingsManager;
     private OverlayWindow? _overlayWindow;
+    private ModelManager? _modelManager;
+    private ServiceFactory? _serviceFactory;
     private ILogger<App>? _logger;
     private ILoggerFactory? _loggerFactory;
     private DictationOrchestrator? _orchestrator;
@@ -56,19 +56,32 @@ public partial class App : Application
     {
         _settingsManager = new SettingsManager(_loggerFactory!.CreateLogger<SettingsManager>());
         var settings = _settingsManager.LoadSettings();
+        
+        _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
+        _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager);
+        
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());
-        _transcriptionClient = new OpenAITranscriptionClient(_loggerFactory!.CreateLogger<OpenAITranscriptionClient>());
-        _textPolisher = new TextPolisher(_loggerFactory!.CreateLogger<TextPolisher>());
         _textInjector = new TextInjector(_loggerFactory!.CreateLogger<TextInjector>());
         _overlayWindow = new OverlayWindow();
-        _orchestrator = new DictationOrchestrator(_hotkeyManager, _audioRecorder, _transcriptionClient,
-            _textPolisher, _textInjector, _overlayWindow, _settingsManager,
+        
+        _orchestrator = new DictationOrchestrator(
+            _hotkeyManager, 
+            _audioRecorder, 
+            _textInjector, 
+            _overlayWindow, 
+            _settingsManager,
+            _serviceFactory,
             _loggerFactory!.CreateLogger<DictationOrchestrator>());
+        
         _trayIconManager = new TrayIconManager(_settingsManager, _orchestrator,
             _loggerFactory!.CreateLogger<TrayIconManager>());
+        
         _orchestrator.ApplySettings(settings);
         _hotkeyManager.RegisterHotkey(settings.HotkeyModifiers, settings.HotkeyKey);
+        
+        // Initialize services in background
+        _ = _orchestrator.InitializeServicesAsync();
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -84,7 +97,7 @@ public partial class App : Application
 
     public void ShowSettings()
     {
-        var settingsWindow = new SettingsWindow(_settingsManager!, _orchestrator!, _audioRecorder!);
+        var settingsWindow = new SettingsWindow(_settingsManager!, _orchestrator!, _audioRecorder!, _modelManager!);
         settingsWindow.ShowDialog();
     }
 }
