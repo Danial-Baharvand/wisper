@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using NAudio.Wave;
+using NAudio.Lame;
 
 namespace WisperFlow.Services;
 
@@ -32,6 +35,8 @@ public class OpenAITranscriptionClient
         string? customPrompt = null,
         CancellationToken cancellationToken = default)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+        
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -39,15 +44,40 @@ public class OpenAITranscriptionClient
             throw new InvalidOperationException("No API key found. Configure in Settings or set OPENAI_API_KEY env var.");
         }
 
-        var keyPreview = apiKey.Length > 8 ? apiKey[..8] + "..." : "***";
-        _logger.LogDebug("Using API key: {KeyPreview}", keyPreview);
-
         var fileInfo = new FileInfo(audioFilePath);
-        var fileSizeMB = fileInfo.Length / (1024.0 * 1024.0);
-        if (fileSizeMB > MaxFileSizeMB)
-            throw new InvalidOperationException($"Recording too large ({fileSizeMB:F1}MB). Max is {MaxFileSizeMB}MB.");
+        var originalSizeMB = fileInfo.Length / (1024.0 * 1024.0);
+        _logger.LogInformation("Original WAV size: {SizeMB:F2}MB", originalSizeMB);
 
-        _logger.LogInformation("Transcribing audio file, size: {SizeMB:F2}MB", fileSizeMB);
+        // Compress to MP3 for faster upload
+        string uploadFilePath = audioFilePath;
+        string? tempMp3Path = null;
+        string contentType = "audio/wav";
+        
+        var compressionStopwatch = Stopwatch.StartNew();
+        try
+        {
+            tempMp3Path = Path.Combine(Path.GetTempPath(), $"wisperflow_{Guid.NewGuid():N}.mp3");
+            CompressToMp3(audioFilePath, tempMp3Path);
+            
+            var mp3Info = new FileInfo(tempMp3Path);
+            var mp3SizeMB = mp3Info.Length / (1024.0 * 1024.0);
+            var compressionRatio = originalSizeMB / mp3SizeMB;
+            
+            compressionStopwatch.Stop();
+            _logger.LogInformation("Compressed to MP3: {SizeMB:F2}MB ({Ratio:F1}x smaller) in {Time}ms", 
+                mp3SizeMB, compressionRatio, compressionStopwatch.ElapsedMilliseconds);
+            
+            uploadFilePath = tempMp3Path;
+            contentType = "audio/mpeg";
+        }
+        catch (Exception ex)
+        {
+            compressionStopwatch.Stop();
+            _logger.LogWarning(ex, "MP3 compression failed, using original WAV");
+        }
+
+        if (new FileInfo(uploadFilePath).Length / (1024.0 * 1024.0) > MaxFileSizeMB)
+            throw new InvalidOperationException($"Recording too large. Max is {MaxFileSizeMB}MB.");
 
         Exception? lastException = null;
 
@@ -57,10 +87,10 @@ public class OpenAITranscriptionClient
             {
                 using var content = new MultipartFormDataContent();
 
-                var fileBytes = await File.ReadAllBytesAsync(audioFilePath, cancellationToken);
+                var fileBytes = await File.ReadAllBytesAsync(uploadFilePath, cancellationToken);
                 var fileContent = new ByteArrayContent(fileBytes);
-                fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-                content.Add(fileContent, "file", Path.GetFileName(audioFilePath));
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                content.Add(fileContent, "file", Path.GetFileName(uploadFilePath));
                 content.Add(new StringContent("whisper-1"), "model");
 
                 if (!string.IsNullOrWhiteSpace(language) && language.ToLower() != "auto")
@@ -78,17 +108,25 @@ public class OpenAITranscriptionClient
 
                 _logger.LogDebug("Sending transcription request (attempt {Attempt}/{MaxRetries})", attempt, MaxRetries);
 
+                var uploadStopwatch = Stopwatch.StartNew();
                 var response = await _httpClient.SendAsync(request, cancellationToken);
+                uploadStopwatch.Stop();
+                
+                _logger.LogInformation("API request completed in {Time}ms", uploadStopwatch.ElapsedMilliseconds);
 
                 if (response.IsSuccessStatusCode)
                 {
                     var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogDebug("API Response: {Response}", responseJson);
-
                     var result = JsonSerializer.Deserialize<TranscriptionResponse>(responseJson, JsonOptions);
                     var text = result?.Text ?? string.Empty;
                     
-                    _logger.LogInformation("Transcription successful, length: {Length} chars", text.Length);
+                    totalStopwatch.Stop();
+                    _logger.LogInformation("Transcription complete: {Length} chars, total time: {Time}ms", 
+                        text.Length, totalStopwatch.ElapsedMilliseconds);
+                    
+                    // Cleanup temp MP3
+                    CleanupTempFile(tempMp3Path);
+                    
                     return text;
                 }
 
@@ -111,9 +149,15 @@ public class OpenAITranscriptionClient
                     403 => "API access denied. Check your OpenAI account.",
                     _ => $"API error ({statusCode}): {errorBody}"
                 };
+                
+                CleanupTempFile(tempMp3Path);
                 throw new InvalidOperationException(msg);
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) 
+            { 
+                CleanupTempFile(tempMp3Path);
+                throw; 
+            }
             catch (HttpRequestException ex)
             {
                 lastException = ex;
@@ -122,7 +166,25 @@ public class OpenAITranscriptionClient
             }
         }
 
+        CleanupTempFile(tempMp3Path);
         throw new InvalidOperationException($"Transcription failed after {MaxRetries} attempts", lastException);
+    }
+
+    private void CompressToMp3(string wavPath, string mp3Path)
+    {
+        using var reader = new WaveFileReader(wavPath);
+        using var writer = new LameMP3FileWriter(mp3Path, reader.WaveFormat, LAMEPreset.MEDIUM);
+        reader.CopyTo(writer);
+    }
+
+    private void CleanupTempFile(string? path)
+    {
+        if (path == null) return;
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch { /* ignore */ }
     }
 
     private string? GetApiKey()
