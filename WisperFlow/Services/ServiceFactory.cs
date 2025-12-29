@@ -27,6 +27,14 @@ public class ServiceFactory
             return new OpenAITranscriptionService(_loggerFactory.CreateLogger<OpenAITranscriptionService>());
         }
 
+        // Use faster-whisper for FasterWhisper models (Python sidecar)
+        if (model.Source == ModelSource.FasterWhisper)
+        {
+            return new FasterWhisperService(
+                _loggerFactory.CreateLogger<FasterWhisperService>(),
+                model);
+        }
+
         return new LocalWhisperService(
             _loggerFactory.CreateLogger<LocalWhisperService>(),
             _modelManager,

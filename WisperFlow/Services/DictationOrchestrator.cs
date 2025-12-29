@@ -84,15 +84,16 @@ public class DictationOrchestrator
         _transcriptionService = _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
         _polishService = _serviceFactory.CreatePolishService(settings.PolishModelId);
 
-        // Pre-initialize Whisper only (LLM is loaded on demand due to size)
+        // Pre-initialize Whisper/faster-whisper (LLM is loaded on demand due to size)
         _ = Task.Run(async () =>
         {
             try
             {
                 _servicesInitializing = true;
-                if (_transcriptionService is LocalWhisperService)
+                // Pre-load any local transcription service (LocalWhisperService or FasterWhisperService)
+                if (_transcriptionService is LocalWhisperService or FasterWhisperService)
                 {
-                    _logger.LogInformation("Pre-loading Whisper model...");
+                    _logger.LogInformation("Pre-loading transcription model...");
                     await _transcriptionService.InitializeAsync();
                 }
             }

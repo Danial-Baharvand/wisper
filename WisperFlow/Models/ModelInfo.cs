@@ -24,7 +24,7 @@ public class ModelInfo
 }
 
 public enum ModelType { Whisper, LLM }
-public enum ModelSource { OpenAI, Local }
+public enum ModelSource { OpenAI, Local, FasterWhisper }
 
 public class DownloadProgress
 {
@@ -163,6 +163,69 @@ public static class ModelCatalog
         FileName = "ggml-distil-large-v3.bin"
     };
     
+    // ===== FASTER-WHISPER MODELS (requires Python + faster-whisper) =====
+    // These use CTranslate2 for ~4x faster inference with INT8 quantization
+    
+    public static readonly ModelInfo FasterWhisperTinyEn = new()
+    {
+        Id = "faster-whisper-tiny-en",
+        Name = "⚡ Faster Tiny (EN)",
+        Description = "4x faster, INT8, English-only (39M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0  // Downloaded by Python
+    };
+    
+    public static readonly ModelInfo FasterWhisperBaseEn = new()
+    {
+        Id = "faster-whisper-base-en",
+        Name = "⚡ Faster Base (EN)",
+        Description = "4x faster, INT8, English-only (74M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo FasterWhisperSmallEn = new()
+    {
+        Id = "faster-whisper-small-en",
+        Name = "⚡ Faster Small (EN)",
+        Description = "4x faster, INT8, English-only (244M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo FasterWhisperMediumEn = new()
+    {
+        Id = "faster-whisper-medium-en",
+        Name = "⚡ Faster Medium (EN)",
+        Description = "4x faster, INT8, English-only (769M params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo FasterWhisperLargeV3 = new()
+    {
+        Id = "faster-whisper-large-v3",
+        Name = "⚡ Faster Large-v3",
+        Description = "4x faster, INT8, multilingual (1.55B params)",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo FasterWhisperDistilLargeV3 = new()
+    {
+        Id = "faster-whisper-distil-large-v3",
+        Name = "⚡ Faster Distil-Large-v3",
+        Description = "Fastest large model, INT8, English-only",
+        Type = ModelType.Whisper,
+        Source = ModelSource.FasterWhisper,
+        SizeBytes = 0
+    };
+    
     // ===== LLM MODELS =====
     
     public static readonly ModelInfo OpenAIGpt4oMini = new()
@@ -284,11 +347,12 @@ public static class ModelCatalog
     public static IReadOnlyList<ModelInfo> WhisperModels { get; } = new[]
     {
         OpenAIWhisper,
-        // English-only models (recommended for English)
+        // Faster-Whisper models (fastest, requires Python)
+        FasterWhisperBaseEn, FasterWhisperSmallEn, FasterWhisperMediumEn,
+        FasterWhisperDistilLargeV3, FasterWhisperLargeV3, FasterWhisperTinyEn,
+        // Standard Whisper.net models
         WhisperTinyEn, WhisperBaseEn, WhisperSmallEn, WhisperMediumEn,
-        DistilWhisperLargeV3,
-        // Faster large model
-        WhisperLargeV3Turbo,
+        DistilWhisperLargeV3, WhisperLargeV3Turbo,
         // Multilingual models
         WhisperTiny, WhisperBase, WhisperSmall
     };

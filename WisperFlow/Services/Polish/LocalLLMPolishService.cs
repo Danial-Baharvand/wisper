@@ -79,9 +79,9 @@ public class LocalLLMPolishService : IPolishService
         }
     }
 
-    private string BuildPrompt(string text)
+    private string BuildPrompt(string text, bool notesMode = false)
     {
-        var instruction = "Fix punctuation/capitalization. Remove filler words (um, uh, like). Output ONLY the result inside <result></result> tags.";
+        var instruction = notesMode ? BuildNotesModeInstruction() : BuildTypingModeInstruction();
         
         return _model.PromptTemplate switch
         {
@@ -92,6 +92,48 @@ public class LocalLLMPolishService : IPolishService
             "tinyllama" => $"<|user|>\n{instruction}\n\nInput: {text}</s>\n<|assistant|>\n<result>",
             _ => $"### Instruction:\n{instruction}\n\n### Input:\n{text}\n\n### Response:\n<result>"
         };
+    }
+
+    private static string BuildTypingModeInstruction()
+    {
+        return @"You are a speech-to-text post-processor. Clean up the transcription with MINIMAL changes.
+
+RULES:
+1. Add punctuation (periods, commas, question marks)
+2. Fix capitalization (sentence starts, proper nouns like names, places, companies)
+3. Remove filler words: um, uh, like (as filler), you know, basically, I mean, so (at start)
+4. Fix grammar errors (subject-verb agreement, tense consistency, articles a/an/the)
+5. Fix obvious mistranscriptions (e.g., ""there"" vs ""their"", ""your"" vs ""you're"", homophones)
+6. Use context to fix phonetically similar mistranscriptions (e.g., ""my crow soft"" → ""Microsoft"", ""you tube"" → ""YouTube"", ""chat gee pee tee"" → ""ChatGPT"")
+7. Remove false starts and self-corrections (e.g., ""I went to the, I went to the store"" → ""I went to the store"")
+8. Remove repeated words from stuttering
+9. Preserve numbers, emails, URLs exactly
+10. Convert spoken formatting: ""new line"" → newline, ""comma"" → ,, ""period"" → .
+
+OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.";
+    }
+
+    private static string BuildNotesModeInstruction()
+    {
+        return @"You are a speech-to-text post-processor for note-taking. Clean up and format the transcription.
+
+RULES:
+1. Add proper punctuation and capitalization
+2. Remove ALL filler words (um, uh, like, you know, basically, actually, so, well, I mean)
+3. Fix grammar and make sentences concise
+4. Fix mistranscriptions and homophones (there/their/they're, your/you're, its/it's)
+5. Use context to fix phonetically similar mistranscriptions (e.g., ""my crow soft"" → ""Microsoft"", ""you tube"" → ""YouTube"", ""in video"" → ""NVIDIA"")
+6. Remove stutters, false starts, and self-corrections
+7. Remove redundant phrases
+8. Preserve numbers, emails, URLs
+
+FORMATTING:
+- ""new line"" → newline
+- ""new paragraph"" → double newline
+- ""bullet"" or ""bullet point"" + text → • text
+- Punctuation commands → actual punctuation
+
+OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.";
     }
 
     private string[] GetStopTokens()
@@ -120,7 +162,9 @@ public class LocalLLMPolishService : IPolishService
         
         var preambles = new[] {
             "Sure, here is", "Here is the", "Here's the", "The corrected", "Corrected:",
-            "Output:", "Result:", "Fixed:", "Cleaned:"
+            "Output:", "Result:", "Fixed:", "Cleaned:", "Polished:", "Here you go",
+            "The cleaned", "The polished", "The fixed", "I've cleaned", "I've fixed",
+            "Here's your", "Your text:", "Cleaned text:", "Fixed text:"
         };
         foreach (var p in preambles)
         {
@@ -151,10 +195,10 @@ public class LocalLLMPolishService : IPolishService
         
         try
         {
-            var prompt = BuildPrompt(rawText);
+            var prompt = BuildPrompt(rawText, notesMode);
             var inferenceParams = new InferenceParams 
             { 
-                MaxTokens = 200,
+                MaxTokens = 300,  // Allow more output for complex corrections
                 AntiPrompts = GetStopTokens(),
                 SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline { Temperature = 0.1f }
             };

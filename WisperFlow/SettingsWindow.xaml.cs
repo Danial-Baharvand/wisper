@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using WisperFlow.Models;
 using WisperFlow.Services;
+using WisperFlow.Services.Transcription;
 
 namespace WisperFlow;
 
@@ -132,19 +133,62 @@ public partial class SettingsWindow : Window
 
     private void PopulateModels()
     {
+        // Check faster-whisper availability once
+        var fasterWhisperAvailable = FasterWhisperAvailability.IsAvailable;
+        
         // Transcription models
         TranscriptionModelComboBox.Items.Clear();
         foreach (var model in ModelCatalog.WhisperModels)
         {
+            var isFasterWhisper = model.Source == ModelSource.FasterWhisper;
             var installed = _modelManager.IsModelInstalled(model);
-            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
-            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
+            
+            string displayName;
+            bool isEnabled = true;
+            string? tooltip = null;
+            
+            if (isFasterWhisper && !fasterWhisperAvailable)
+            {
+                // Grey out faster-whisper models when Python/faster-whisper not available
+                displayName = $"{model.Name} (unavailable)";
+                isEnabled = false;
+                tooltip = FasterWhisperAvailability.UnavailableReason;
+            }
+            else if (installed)
+            {
+                displayName = model.Name;
+            }
+            else
+            {
+                displayName = $"{model.Name} ⬇️";
+            }
+            
+            var item = new ComboBoxItem 
+            { 
+                Content = displayName, 
+                Tag = model.Id,
+                IsEnabled = isEnabled,
+                ToolTip = tooltip
+            };
+            
             TranscriptionModelComboBox.Items.Add(item);
-            if (_settings.TranscriptionModelId == model.Id)
+            
+            // Only select if enabled
+            if (_settings.TranscriptionModelId == model.Id && isEnabled)
                 TranscriptionModelComboBox.SelectedItem = item;
         }
         if (TranscriptionModelComboBox.SelectedItem == null)
-            TranscriptionModelComboBox.SelectedIndex = 0;
+        {
+            // Select first enabled item
+            foreach (ComboBoxItem item in TranscriptionModelComboBox.Items)
+            {
+                if (item.IsEnabled)
+                {
+                    TranscriptionModelComboBox.SelectedItem = item;
+                    break;
+                }
+            }
+        }
         
         // Polish models
         PolishModelComboBox.Items.Clear();
@@ -168,8 +212,23 @@ public partial class SettingsWindow : Window
         if (TranscriptionModelComboBox.SelectedItem is ComboBoxItem ti && ti.Tag is string tid)
         {
             var model = ModelCatalog.GetById(tid);
-            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
-            TranscriptionModelDesc.Text = (model?.Description ?? "") + status;
+            if (model != null)
+            {
+                string status;
+                if (model.Source == ModelSource.FasterWhisper && !FasterWhisperAvailability.IsAvailable)
+                {
+                    status = $" ⚠️ {FasterWhisperAvailability.UnavailableReason}";
+                }
+                else if (!_modelManager.IsModelInstalled(model))
+                {
+                    status = " (download required)";
+                }
+                else
+                {
+                    status = "";
+                }
+                TranscriptionModelDesc.Text = model.Description + status;
+            }
         }
         
         if (PolishModelComboBox.SelectedItem is ComboBoxItem pi && pi.Tag is string pid)

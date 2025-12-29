@@ -1,9 +1,7 @@
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Whisper.net;
-using Whisper.net.Ggml;
 using WisperFlow.Models;
 
 namespace WisperFlow.Services.Transcription;
@@ -19,7 +17,6 @@ public class LocalWhisperService : ITranscriptionService
     private readonly ModelInfo _model;
     private WhisperProcessor? _processor;
     private bool _isInitialized;
-    private bool _usingGpu;
 
     public string ModelId => _model.Id;
     public bool IsReady => _isInitialized && _processor != null;
@@ -57,8 +54,8 @@ public class LocalWhisperService : ITranscriptionService
                 .Build();
             
             _isInitialized = true;
-            _usingGpu = IsCudaAvailable();
-            _logger.LogInformation("Whisper model loaded successfully ({Backend})", _usingGpu ? "GPU/CUDA" : "CPU");
+            var backend = DetectBackend();
+            _logger.LogInformation("Whisper model loaded successfully - Backend: {Backend}", backend);
         }
         catch (Exception ex)
         {
@@ -108,20 +105,38 @@ public class LocalWhisperService : ITranscriptionService
     }
     
     /// <summary>
-    /// Checks if CUDA runtime is available by looking for loaded CUDA DLLs.
+    /// Detects which Whisper runtime backend is being used.
+    /// Priority: CUDA > OpenVINO > CPU
     /// </summary>
-    private static bool IsCudaAvailable()
+    private string DetectBackend()
     {
         try
         {
-            // Check if the CUDA runtime assembly was loaded
-            var whisperAssembly = AppDomain.CurrentDomain.GetAssemblies()
-                .FirstOrDefault(a => a.GetName().Name?.Contains("Whisper.net.Runtime.Cuda") == true);
-            return whisperAssembly != null;
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            
+            // Check for CUDA (NVIDIA GPU)
+            if (assemblies.Any(a => a.GetName().Name?.Contains("Whisper.net.Runtime.Cuda") == true))
+            {
+                return "CUDA (NVIDIA GPU)";
+            }
+            
+            // Check for OpenVINO (Intel acceleration)
+            if (assemblies.Any(a => a.GetName().Name?.Contains("Whisper.net.Runtime.OpenVino") == true))
+            {
+                return "OpenVINO (Intel)";
+            }
+            
+            // Check for CoreML (Apple)
+            if (assemblies.Any(a => a.GetName().Name?.Contains("Whisper.net.Runtime.CoreML") == true))
+            {
+                return "CoreML (Apple)";
+            }
+            
+            return "CPU";
         }
         catch
         {
-            return false;
+            return "CPU";
         }
     }
 }
