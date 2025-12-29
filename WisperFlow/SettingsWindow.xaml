@@ -197,10 +197,42 @@
                 
                 <!-- Startup Section -->
                 <TextBlock Text="SYSTEM" Style="{StaticResource SettingLabel}"/>
+                <Border Style="{StaticResource CardBorder}">
+                    <StackPanel>
+                        <CheckBox x:Name="StartupCheckBox" 
+                                  Style="{StaticResource ModernToggle}"
+                                  Content="Launch WisperFlow at Windows startup"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Debug Section -->
+                <TextBlock Text="TROUBLESHOOTING" Style="{StaticResource SettingLabel}"/>
                 <Border Style="{StaticResource CardBorder}" Margin="0,0,0,0">
-                    <CheckBox x:Name="StartupCheckBox" 
-                              Style="{StaticResource ModernToggle}"
-                              Content="Launch WisperFlow at Windows startup"/>
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="View application logs to diagnose issues"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Content="View Logs" 
+                                    Style="{StaticResource SecondaryButton}"
+                                    Padding="16,10"
+                                    Click="ViewLogs_Click"/>
+                            <Button Grid.Column="2" Content="Open Folder" 
+                                    Style="{StaticResource SecondaryButton}"
+                                    Padding="16,10"
+                                    Margin="8,0,0,0"
+                                    Click="OpenLogFolder_Click"/>
+                        </Grid>
+                        <TextBlock x:Name="LogPathText"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="10" TextWrapping="Wrap" Margin="0,12,0,0"
+                                   Opacity="0.7"/>
+                    </StackPanel>
                 </Border>
                 
             </StackPanel>

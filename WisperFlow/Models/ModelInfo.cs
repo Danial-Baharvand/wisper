@@ -127,14 +127,56 @@ public static class ModelCatalog
     public static readonly ModelInfo Gemma2B = new()
     {
         Id = "gemma-2b",
-        Name = "Gemma 2B",
-        Description = "Google's model, good quality (2B params)",
+        Name = "Gemma 1 (2B)",
+        Description = "Google's original Gemma, good quality (2B params)",
         Type = ModelType.LLM,
         Source = ModelSource.Local,
         SizeBytes = 1_500_000_000,
         DownloadUrl = "https://huggingface.co/lmstudio-ai/gemma-2b-it-GGUF/resolve/main/gemma-2b-it-q4_k_m.gguf",
         FileName = "gemma-2b-q4.gguf",
         PromptTemplate = "gemma"
+    };
+    
+    public static readonly ModelInfo Gemma2_2B = new()
+    {
+        Id = "gemma2-2b",
+        Name = "Gemma 2 (2B)",
+        Description = "Google's Gemma 2, improved quality (2B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 1_600_000_000,
+        DownloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
+        FileName = "gemma-2-2b-q4.gguf",
+        PromptTemplate = "gemma2"
+    };
+    
+    public static readonly ModelInfo Gemma2_9B = new()
+    {
+        Id = "gemma2-9b",
+        Name = "Gemma 2 (9B)",
+        Description = "High quality, needs 8GB+ RAM (9B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 5_500_000_000,
+        DownloadUrl = "https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf",
+        FileName = "gemma-2-9b-q4.gguf",
+        PromptTemplate = "gemma2"
+    };
+    
+    // Note: Gemma 3 1B uses gemma3_text architecture which is not yet supported by LLamaSharp
+    // Keeping Gemma 2 2B as the smallest fast option instead
+    
+    public static readonly ModelInfo Gemma3_4B = new()
+    {
+        Id = "gemma3-4b",
+        Name = "Gemma 3 (4B)",
+        Description = "Latest Gemma, excellent quality (4B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 2_600_000_000,
+        DownloadUrl = "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+        FileName = "gemma-3-4b-q4.gguf",
+        PromptTemplate = "gemma3"
     };
     
     // Additional CPU models with verified URLs
@@ -171,7 +213,7 @@ public static class ModelCatalog
     
     public static IReadOnlyList<ModelInfo> LLMModels { get; } = new[]
     {
-        OpenAIGpt4oMini, PolishDisabled, TinyLlama, Gemma2B, Mistral7BInstruct, OpenChat35
+        OpenAIGpt4oMini, PolishDisabled, TinyLlama, Gemma2B, Gemma2_2B, Gemma2_9B, Gemma3_4B, Mistral7BInstruct, OpenChat35
     };
     
     public static ModelInfo? GetById(string id) =>

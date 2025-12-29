@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Extensions.Logging;
 using WisperFlow.Services;
 
@@ -19,12 +21,17 @@ public partial class App : Application
     private ILoggerFactory? _loggerFactory;
     private DictationOrchestrator? _orchestrator;
 
-    private static string LogFilePath => Path.Combine(
+    public static string LogFilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "WisperFlow", "wisperflow.log");
 
     private void Application_Startup(object sender, StartupEventArgs e)
     {
+        // Set up global exception handlers
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        
         var logDir = Path.GetDirectoryName(LogFilePath)!;
         Directory.CreateDirectory(logDir);
 
@@ -50,6 +57,52 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
+    }
+    
+    private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        var ex = e.ExceptionObject as Exception;
+        _logger?.LogCritical(ex, "UNHANDLED EXCEPTION (IsTerminating={IsTerminating})", e.IsTerminating);
+        File.AppendAllText(LogFilePath, $"\n[CRASH] {DateTime.Now}: {ex}\n");
+    }
+    
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        _logger?.LogError(e.Exception, "Dispatcher unhandled exception");
+        File.AppendAllText(LogFilePath, $"\n[DISPATCHER ERROR] {DateTime.Now}: {e.Exception}\n");
+        e.Handled = true; // Prevent crash
+    }
+    
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _logger?.LogError(e.Exception, "Unobserved task exception");
+        File.AppendAllText(LogFilePath, $"\n[TASK ERROR] {DateTime.Now}: {e.Exception}\n");
+        e.SetObserved(); // Prevent crash
+    }
+    
+    public static void OpenLogFile()
+    {
+        try
+        {
+            if (File.Exists(LogFilePath))
+                Process.Start(new ProcessStartInfo(LogFilePath) { UseShellExecute = true });
+            else
+                MessageBox.Show($"Log file not found:\n{LogFilePath}", "Log File");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to open log file: {ex.Message}", "Error");
+        }
+    }
+    
+    public static void OpenLogFolder()
+    {
+        try
+        {
+            var folder = Path.GetDirectoryName(LogFilePath)!;
+            Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
+        }
+        catch { }
     }
 
     private void InitializeServices()

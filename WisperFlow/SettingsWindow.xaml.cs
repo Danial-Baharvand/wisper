@@ -52,6 +52,9 @@ public partial class SettingsWindow : Window
 
         // Startup
         StartupCheckBox.IsChecked = _settings.LaunchAtStartup;
+        
+        // Log path
+        LogPathText.Text = $"Log: {App.LogFilePath}";
     }
 
     private void PopulateMicrophones()
@@ -302,6 +305,16 @@ public partial class SettingsWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+    
+    private void ViewLogs_Click(object sender, RoutedEventArgs e)
+    {
+        App.OpenLogFile();
+    }
+    
+    private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
+    {
+        App.OpenLogFolder();
     }
 }
 

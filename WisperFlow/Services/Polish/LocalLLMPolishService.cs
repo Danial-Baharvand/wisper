@@ -31,10 +31,20 @@ public class LocalLLMPolishService : IPolishService
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (_isInitialized || _initializationFailed) return;
+        if (_isInitialized) return;
+        if (_initializationFailed)
+        {
+            _logger.LogWarning("Skipping LLM init - previous attempt failed");
+            return; // Don't retry failed models, just return (polish will be skipped)
+        }
+        
         var modelPath = _modelManager.GetModelPath(_model);
         if (!File.Exists(modelPath))
-            throw new InvalidOperationException($"Model {_model.Name} not downloaded.");
+        {
+            _initializationFailed = true;
+            _logger.LogError("Model file not found: {Path}", modelPath);
+            return; // Don't throw - just skip polish
+        }
 
         _logger.LogInformation("Loading LLM: {Model} ({Size})", _model.Name, _model.SizeFormatted);
         try
@@ -45,11 +55,12 @@ public class LocalLLMPolishService : IPolishService
                 {
                     ContextSize = 512,
                     GpuLayerCount = 0,
-                    Threads = (uint)Math.Max(1, Environment.ProcessorCount / 2)
+                    Threads = Math.Max(1, Environment.ProcessorCount / 2),
+                    UseMemorymap = true
                 };
                 _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
-                _executor = new InteractiveExecutor(_context);  // Create executor once at load
+                _executor = new InteractiveExecutor(_context);
             }, cancellationToken);
             _isInitialized = true;
             _logger.LogInformation("LLM loaded successfully");
@@ -57,8 +68,14 @@ public class LocalLLMPolishService : IPolishService
         catch (Exception ex)
         {
             _initializationFailed = true;
-            _logger.LogError(ex, "Failed to load LLM");
-            throw new InvalidOperationException($"Failed to load LLM: {ex.Message}", ex);
+            _logger.LogError(ex, "Failed to load LLM: {Model}. Polish will be skipped.", _model.Name);
+            // Don't throw - gracefully degrade to no polish
+            // Clean up any partial state
+            _executor = null;
+            _context?.Dispose();
+            _context = null;
+            _weights?.Dispose();
+            _weights = null;
         }
     }
 
@@ -68,7 +85,8 @@ public class LocalLLMPolishService : IPolishService
         
         return _model.PromptTemplate switch
         {
-            "gemma" => $"<start_of_turn>user\n{instruction}\n\nInput: {text}<end_of_turn>\n<start_of_turn>model\n<result>",
+            "gemma" or "gemma2" => $"<start_of_turn>user\n{instruction}\n\nInput: {text}<end_of_turn>\n<start_of_turn>model\n<result>",
+            "gemma3" => $"<start_of_turn>user\n{instruction}\n\nInput: {text}<end_of_turn>\n<start_of_turn>model\n<result>",
             "mistral" => $"[INST] {instruction}\n\nInput: {text} [/INST]\n<result>",
             "openchat" => $"GPT4 Correct User: {instruction}\n\nInput: {text}<|end_of_turn|>GPT4 Correct Assistant: <result>",
             "tinyllama" => $"<|user|>\n{instruction}\n\nInput: {text}</s>\n<|assistant|>\n<result>",
@@ -80,7 +98,7 @@ public class LocalLLMPolishService : IPolishService
     {
         return _model.PromptTemplate switch
         {
-            "gemma" => new[] { "</result>", "<end_of_turn>", "<start_of_turn>" },
+            "gemma" or "gemma2" or "gemma3" => new[] { "</result>", "<end_of_turn>", "<start_of_turn>" },
             "mistral" => new[] { "</result>", "</s>", "[INST]" },
             "openchat" => new[] { "</result>", "<|end_of_turn|>" },
             "tinyllama" => new[] { "</result>", "</s>", "<|user|>" },
@@ -136,9 +154,9 @@ public class LocalLLMPolishService : IPolishService
             var prompt = BuildPrompt(rawText);
             var inferenceParams = new InferenceParams 
             { 
-                MaxTokens = 200, 
-                Temperature = 0.1f, 
-                AntiPrompts = GetStopTokens()
+                MaxTokens = 200,
+                AntiPrompts = GetStopTokens(),
+                SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline { Temperature = 0.1f }
             };
 
             // Run inference completely off the UI thread to prevent freezing
