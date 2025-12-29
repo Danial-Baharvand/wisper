@@ -1,8 +1,5 @@
 namespace WisperFlow.Models;
 
-/// <summary>
-/// Represents information about an AI model (Whisper or LLM).
-/// </summary>
 public class ModelInfo
 {
     public string Id { get; init; } = "";
@@ -13,6 +10,7 @@ public class ModelInfo
     public long SizeBytes { get; init; }
     public string DownloadUrl { get; init; } = "";
     public string FileName { get; init; } = "";
+    public string PromptTemplate { get; init; } = "default";
     
     public string SizeFormatted => FormatSize(SizeBytes);
     
@@ -25,21 +23,9 @@ public class ModelInfo
     }
 }
 
-public enum ModelType
-{
-    Whisper,    // Speech-to-text
-    LLM         // Text polish
-}
+public enum ModelType { Whisper, LLM }
+public enum ModelSource { OpenAI, Local }
 
-public enum ModelSource
-{
-    OpenAI,     // Cloud API
-    Local       // Downloaded model
-}
-
-/// <summary>
-/// Tracks model download progress.
-/// </summary>
 public class DownloadProgress
 {
     public string ModelId { get; set; } = "";
@@ -49,13 +35,9 @@ public class DownloadProgress
     public bool IsComplete { get; set; }
     public bool IsCancelled { get; set; }
     public string? Error { get; set; }
-    
     public double ProgressPercent => TotalBytes > 0 ? (BytesDownloaded * 100.0 / TotalBytes) : 0;
 }
 
-/// <summary>
-/// Static catalog of available models.
-/// </summary>
 public static class ModelCatalog
 {
     // ===== WHISPER MODELS =====
@@ -128,29 +110,58 @@ public static class ModelCatalog
         SizeBytes = 0
     };
     
-    // Small local LLM options
-    public static readonly ModelInfo SmolLM135M = new()
-    {
-        Id = "smollm-135m",
-        Name = "SmolLM 135M",
-        Description = "Very small & fast, basic cleanup (135M params)",
-        Type = ModelType.LLM,
-        Source = ModelSource.Local,
-        SizeBytes = 100_000_000,
-        DownloadUrl = "https://huggingface.co/TheBloke/smollm-135M-instruct-v0.2-GGUF/resolve/main/smollm-135m-instruct-v0.2.Q4_K_M.gguf",
-        FileName = "smollm-135m-q4.gguf"
-    };
-    
+    // Working local models - verified URLs
     public static readonly ModelInfo TinyLlama = new()
     {
         Id = "tinyllama-1b",
         Name = "TinyLlama 1.1B",
-        Description = "Small but capable, good quality (1.1B params)",
+        Description = "Small, CPU-friendly (1.1B params)",
         Type = ModelType.LLM,
         Source = ModelSource.Local,
         SizeBytes = 670_000_000,
         DownloadUrl = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-        FileName = "tinyllama-1.1b-q4.gguf"
+        FileName = "tinyllama-1.1b-q4.gguf",
+        PromptTemplate = "tinyllama"
+    };
+    
+    public static readonly ModelInfo Gemma2B = new()
+    {
+        Id = "gemma-2b",
+        Name = "Gemma 2B",
+        Description = "Google's model, good quality (2B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 1_500_000_000,
+        DownloadUrl = "https://huggingface.co/lmstudio-ai/gemma-2b-it-GGUF/resolve/main/gemma-2b-it-q4_k_m.gguf",
+        FileName = "gemma-2b-q4.gguf",
+        PromptTemplate = "gemma"
+    };
+    
+    // Additional CPU models with verified URLs
+    public static readonly ModelInfo Mistral7BInstruct = new()
+    {
+        Id = "mistral-7b",
+        Name = "Mistral 7B Instruct",
+        Description = "High quality, needs 8GB+ RAM (7B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 4_400_000_000,
+        DownloadUrl = "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+        FileName = "mistral-7b-instruct-q4.gguf",
+        PromptTemplate = "mistral"
+    };
+    
+    public static readonly ModelInfo OpenChat35 = new()
+    {
+        Id = "openchat-3.5",
+        Name = "OpenChat 3.5",
+        Description = "High quality, needs 8GB+ RAM (7B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 4_400_000_000,
+        DownloadUrl = "https://huggingface.co/TheBloke/openchat-3.5-0106-GGUF/resolve/main/openchat-3.5-0106.Q4_K_M.gguf",
+        FileName = "openchat-3.5-q4.gguf",
+        PromptTemplate = "openchat"
     };
     
     public static IReadOnlyList<ModelInfo> WhisperModels { get; } = new[]
@@ -160,10 +171,9 @@ public static class ModelCatalog
     
     public static IReadOnlyList<ModelInfo> LLMModels { get; } = new[]
     {
-        OpenAIGpt4oMini, PolishDisabled, SmolLM135M, TinyLlama
+        OpenAIGpt4oMini, PolishDisabled, TinyLlama, Gemma2B, Mistral7BInstruct, OpenChat35
     };
     
     public static ModelInfo? GetById(string id) =>
         WhisperModels.Concat(LLMModels).FirstOrDefault(m => m.Id == id);
 }
-

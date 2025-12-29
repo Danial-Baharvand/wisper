@@ -1,5 +1,6 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using LLama;
 using LLama.Common;
@@ -16,9 +17,6 @@ public class LocalLLMPolishService : IPolishService
     private LLamaContext? _context;
     private bool _isInitialized;
     private bool _initializationFailed;
-
-    private const string TypingPrompt = "<|system|>\nClean up this transcription. Fix punctuation and capitalization. Remove filler words. Output ONLY the cleaned text.</s>\n<|user|>\n{0}</s>\n<|assistant|>\n";
-    private const string NotesPrompt = "<|system|>\nFormat as clean notes. Fix punctuation, remove filler words. Output ONLY the text.</s>\n<|user|>\n{0}</s>\n<|assistant|>\n";
 
     public string ModelId => _model.Id;
     public bool IsReady => _isInitialized && _context != null;
@@ -44,7 +42,7 @@ public class LocalLLMPolishService : IPolishService
             {
                 var parameters = new ModelParams(modelPath)
                 {
-                    ContextSize = 1024,
+                    ContextSize = 512,
                     GpuLayerCount = 0,
                     Threads = (uint)Math.Max(1, Environment.ProcessorCount / 2)
                 };
@@ -62,28 +60,105 @@ public class LocalLLMPolishService : IPolishService
         }
     }
 
+    private string BuildPrompt(string text)
+    {
+        // Use XML tags for structured output - easier to parse
+        var instruction = "Fix punctuation/capitalization. Remove filler words (um, uh, like). Output ONLY the result inside <result></result> tags.";
+        
+        return _model.PromptTemplate switch
+        {
+            "gemma" => $"<start_of_turn>user\n{instruction}\n\nInput: {text}<end_of_turn>\n<start_of_turn>model\n<result>",
+            "mistral" => $"[INST] {instruction}\n\nInput: {text} [/INST]\n<result>",
+            "openchat" => $"GPT4 Correct User: {instruction}\n\nInput: {text}<|end_of_turn|>GPT4 Correct Assistant: <result>",
+            "tinyllama" => $"<|user|>\n{instruction}\n\nInput: {text}</s>\n<|assistant|>\n<result>",
+            _ => $"### Instruction:\n{instruction}\n\n### Input:\n{text}\n\n### Response:\n<result>"
+        };
+    }
+
+    private string[] GetStopTokens()
+    {
+        // Always include </result> as primary stop token
+        return _model.PromptTemplate switch
+        {
+            "gemma" => new[] { "</result>", "<end_of_turn>", "<start_of_turn>" },
+            "mistral" => new[] { "</result>", "</s>", "[INST]" },
+            "openchat" => new[] { "</result>", "<|end_of_turn|>" },
+            "tinyllama" => new[] { "</result>", "</s>", "<|user|>" },
+            _ => new[] { "</result>", "\n\n\n", "###" }
+        };
+    }
+
+    private string ExtractResult(string output, string originalText)
+    {
+        if (string.IsNullOrWhiteSpace(output)) return originalText;
+        
+        // Try to extract content from <result> tags
+        var resultMatch = Regex.Match(output, @"<result>\s*(.*?)\s*(?:</result>|$)", RegexOptions.Singleline);
+        if (resultMatch.Success && !string.IsNullOrWhiteSpace(resultMatch.Groups[1].Value))
+        {
+            output = resultMatch.Groups[1].Value.Trim();
+        }
+        
+        // Remove any remaining XML tags
+        output = Regex.Replace(output, @"<[^>]+>", "").Trim();
+        
+        // Remove common preambles
+        var preambles = new[] {
+            "Sure, here is", "Here is the", "Here's the", "The corrected", "Corrected:",
+            "Output:", "Result:", "Fixed:", "Cleaned:"
+        };
+        foreach (var p in preambles)
+        {
+            var idx = output.IndexOf(p, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && idx < 30)
+            {
+                var colonIdx = output.IndexOf(':', idx);
+                if (colonIdx > 0 && colonIdx < idx + 50)
+                    output = output[(colonIdx + 1)..].TrimStart();
+            }
+        }
+        
+        // Remove quotes if wrapped
+        output = output.Trim();
+        if ((output.StartsWith("\"") && output.EndsWith("\"")) || 
+            (output.StartsWith("'") && output.EndsWith("'")))
+            output = output[1..^1];
+            
+        return string.IsNullOrWhiteSpace(output) ? originalText : output.Trim();
+    }
+
     public async Task<string> PolishAsync(string rawText, bool notesMode = false, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawText)) return rawText;
         if (_context == null || _weights == null) return rawText;
 
         _logger.LogInformation("Polishing with {Model}", _model.Name);
+        var startTime = DateTime.UtcNow;
+        
         try
         {
-            var prompt = string.Format(notesMode ? NotesPrompt : TypingPrompt, rawText);
+            var prompt = BuildPrompt(rawText);
             var executor = new StatelessExecutor(_weights, _context.Params);
-            var inferenceParams = new InferenceParams { MaxTokens = 256, Temperature = 0.1f, AntiPrompts = new[] { "</s>", "<|user|>" } };
+            var inferenceParams = new InferenceParams 
+            { 
+                MaxTokens = 200, 
+                Temperature = 0.1f, 
+                AntiPrompts = GetStopTokens()
+            };
 
             var result = new StringBuilder();
             await foreach (var token in executor.InferAsync(prompt, inferenceParams, cancellationToken))
             {
                 result.Append(token);
-                if (result.Length > rawText.Length * 2) break;
+                if (result.Length > rawText.Length * 3) break;
             }
-            var polished = result.ToString().Trim();
-            var endIdx = polished.IndexOf("</s>");
-            if (endIdx > 0) polished = polished[..endIdx].Trim();
-            return string.IsNullOrWhiteSpace(polished) ? rawText : polished;
+            
+            var polished = ExtractResult(result.ToString(), rawText);
+            
+            var elapsed = DateTime.UtcNow - startTime;
+            _logger.LogInformation("Polish done in {Time:F1}s", elapsed.TotalSeconds);
+            
+            return polished;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
