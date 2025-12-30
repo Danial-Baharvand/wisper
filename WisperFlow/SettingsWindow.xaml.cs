@@ -341,10 +341,13 @@ public partial class SettingsWindow : Window
             }
         }
         
-        // Polish models
+        // Polish models (skip "Disabled" - use the checkbox to disable polishing instead)
         PolishModelComboBox.Items.Clear();
         foreach (var model in ModelCatalog.LLMModels)
         {
+            // Skip "Disabled" option - polishing is controlled by the checkbox now
+            if (model.Id == "polish-disabled") continue;
+            
             var installed = _modelManager.IsModelInstalled(model);
             var displayName = installed ? model.Name : $"{model.Name} ⬇️";
             var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
@@ -352,6 +355,7 @@ public partial class SettingsWindow : Window
             if (_settings.PolishModelId == model.Id)
                 PolishModelComboBox.SelectedItem = item;
         }
+        // If no model selected (e.g., was set to "polish-disabled"), select first available
         if (PolishModelComboBox.SelectedItem == null)
             PolishModelComboBox.SelectedIndex = 0;
         

@@ -307,7 +307,7 @@ public class DictationOrchestrator
             _logger.LogInformation("Streaming transcript: {Len} chars", transcript.Length);
 
             var finalText = transcript;
-            if (settings.PolishOutput && _polishService?.ModelId != "polish-disabled")
+            if (settings.PolishOutput)
             {
                 _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
                 
@@ -383,7 +383,7 @@ public class DictationOrchestrator
             _logger.LogDebug("Transcript: {Len} chars", transcript.Length);
 
             var finalText = transcript;
-            if (settings.PolishOutput && _polishService.ModelId != "polish-disabled")
+            if (settings.PolishOutput)
             {
                 if (!_polishService.IsReady)
                 {

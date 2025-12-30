@@ -60,6 +60,16 @@ public class SettingsManager
                 {
                     _currentSettings = settings;
                     _logger.LogInformation("Settings loaded from {Path}", _settingsFilePath);
+                    
+                    // Migration: If PolishModelId was "polish-disabled", migrate to new approach
+                    if (settings.PolishModelId == "polish-disabled")
+                    {
+                        _logger.LogInformation("Migrating polish-disabled setting: disabling PolishOutput and setting default model");
+                        settings.PolishOutput = false;  // Disable polishing via the checkbox
+                        settings.PolishModelId = "openai-gpt4o-mini";  // Set to default valid model
+                        SaveSettings(settings);  // Persist the migration
+                    }
+                    
                     return settings;
                 }
             }
