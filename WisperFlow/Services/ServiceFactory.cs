@@ -94,6 +94,9 @@ public class ServiceFactory
     public ICodeDictationService CreateCodeDictationService(string modelId)
     {
         var model = ModelCatalog.GetById(modelId);
+        var settings = _settingsManager.CurrentSettings;
+        var customPrompt = string.IsNullOrWhiteSpace(settings.CustomCodeDictationPrompt) 
+            ? null : settings.CustomCodeDictationPrompt;
         
         if (model == null || model.Source == ModelSource.OpenAI)
         {
@@ -101,7 +104,8 @@ public class ServiceFactory
             var apiModel = model ?? ModelCatalog.OpenAIGpt4oMini;
             return new OpenAICodeDictationService(
                 apiModel,
-                _loggerFactory.CreateLogger<OpenAICodeDictationService>());
+                _loggerFactory.CreateLogger<OpenAICodeDictationService>(),
+                customPrompt);
         }
 
         if (model.Source == ModelSource.Cerebras)
@@ -109,13 +113,15 @@ public class ServiceFactory
             // Use Cerebras API for code dictation
             return new CerebrasCodeDictationService(
                 model,
-                _loggerFactory.CreateLogger<CerebrasCodeDictationService>());
+                _loggerFactory.CreateLogger<CerebrasCodeDictationService>(),
+                customPrompt);
         }
 
         // Use local LLM for code dictation
         return new LocalCodeDictationService(
             _modelManager,
             model,
-            _loggerFactory.CreateLogger<LocalCodeDictationService>());
+            _loggerFactory.CreateLogger<LocalCodeDictationService>(),
+            customPrompt);
     }
 }

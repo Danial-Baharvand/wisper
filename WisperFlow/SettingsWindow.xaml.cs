@@ -77,6 +77,12 @@ public partial class SettingsWindow : Window
                 section.Visibility = Visibility.Collapsed;
             }
             
+            // Also hide prompt editor without saving
+            if (SectionPromptEditor != null)
+            {
+                SectionPromptEditor.Visibility = Visibility.Collapsed;
+            }
+            
             // Show selected section
             _sections[rb.Name].Visibility = Visibility.Visible;
         }
@@ -533,7 +539,7 @@ public partial class SettingsWindow : Window
     
     private void LoadCurrentPrompt()
     {
-        if (TypingModeTab == null || NotesModeTab == null || PromptEditorTextBox == null) return;
+        if (TypingModeTab == null || NotesModeTab == null || CodeDictationTab == null || PromptEditorTextBox == null) return;
         
         if (TypingModeTab.IsChecked == true)
         {
@@ -545,7 +551,7 @@ public partial class SettingsWindow : Window
             if (PromptModeDescription != null)
                 PromptModeDescription.Text = "Typing mode: Minimal cleanup - punctuation, grammar, self-corrections.";
         }
-        else
+        else if (NotesModeTab.IsChecked == true)
         {
             // Load notes mode prompt
             var customPrompt = _settings.CustomNotesPrompt;
@@ -555,6 +561,16 @@ public partial class SettingsWindow : Window
             if (PromptModeDescription != null)
                 PromptModeDescription.Text = "Notes mode: Aggressive cleanup with bullets, headings, and formatting.";
         }
+        else if (CodeDictationTab.IsChecked == true)
+        {
+            // Load code dictation prompt
+            var customPrompt = _settings.CustomCodeDictationPrompt;
+            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
+                ? WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt 
+                : customPrompt;
+            if (PromptModeDescription != null)
+                PromptModeDescription.Text = "Code dictation: Convert natural language to Python code.";
+        }
     }
     
     private void ResetPrompt_Click(object sender, RoutedEventArgs e)
@@ -563,9 +579,13 @@ public partial class SettingsWindow : Window
         {
             PromptEditorTextBox.Text = WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt;
         }
-        else
+        else if (NotesModeTab.IsChecked == true)
         {
             PromptEditorTextBox.Text = WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt;
+        }
+        else if (CodeDictationTab.IsChecked == true)
+        {
+            PromptEditorTextBox.Text = WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt;
         }
     }
     
@@ -585,7 +605,7 @@ public partial class SettingsWindow : Window
                 _settings.CustomTypingPrompt = currentText;
             }
         }
-        else
+        else if (NotesModeTab.IsChecked == true)
         {
             // Check if it's the default - if so, clear the custom prompt
             if (currentText == WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt.Trim())
@@ -595,6 +615,18 @@ public partial class SettingsWindow : Window
             else
             {
                 _settings.CustomNotesPrompt = currentText;
+            }
+        }
+        else if (CodeDictationTab.IsChecked == true)
+        {
+            // Check if it's the default - if so, clear the custom prompt
+            if (currentText == WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt.Trim())
+            {
+                _settings.CustomCodeDictationPrompt = string.Empty;
+            }
+            else
+            {
+                _settings.CustomCodeDictationPrompt = currentText;
             }
         }
         
@@ -951,6 +983,13 @@ public partial class SettingsWindow : Window
     
     private void ViewLogs_Click(object sender, RoutedEventArgs e)
     {
+        // Close prompt editor if open (without saving)
+        if (SectionPromptEditor != null && SectionPromptEditor.Visibility == Visibility.Visible)
+        {
+            SectionPromptEditor.Visibility = Visibility.Collapsed;
+            SectionPolish.Visibility = Visibility.Visible;
+        }
+        
         App.OpenLogFile();
     }
 }

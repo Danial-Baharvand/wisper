@@ -404,6 +404,12 @@
                                                  Style="{StaticResource PromptModeTab}"
                                                  Checked="PromptModeTab_Changed"
                                                  Margin="8,0,0,0"/>
+                                    <RadioButton x:Name="CodeDictationTab" 
+                                                 Content="Code Dictation" 
+                                                 GroupName="PromptMode"
+                                                 Style="{StaticResource PromptModeTab}"
+                                                 Checked="PromptModeTab_Changed"
+                                                 Margin="8,0,0,0"/>
                                 </StackPanel>
                                 
                                 <!-- Description -->

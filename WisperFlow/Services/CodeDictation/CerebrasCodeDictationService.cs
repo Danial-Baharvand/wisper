@@ -16,6 +16,7 @@ public class CerebrasCodeDictationService : ICodeDictationService
     private readonly HttpClient _httpClient;
     private readonly ILogger<CerebrasCodeDictationService> _logger;
     private readonly string _apiModelName;
+    private readonly string? _customPrompt;
     
     private const string Endpoint = "https://api.cerebras.ai/v1/chat/completions";
 
@@ -24,10 +25,12 @@ public class CerebrasCodeDictationService : ICodeDictationService
 
     public CerebrasCodeDictationService(
         ModelInfo model,
-        ILogger<CerebrasCodeDictationService> logger)
+        ILogger<CerebrasCodeDictationService> logger,
+        string? customPrompt = null)
     {
         ModelId = model.Id;
         _logger = logger;
+        _customPrompt = customPrompt;
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         
         // Map our model IDs to Cerebras API model names
@@ -67,7 +70,7 @@ public class CerebrasCodeDictationService : ICodeDictationService
         _logger.LogInformation("Converting to {Language} via Cerebras {Model}: {Input}", 
             language, _apiModelName, naturalLanguage);
 
-        var systemPrompt = GetSystemPrompt(language);
+        var systemPrompt = GetSystemPrompt(language, _customPrompt);
 
         try
         {
@@ -119,40 +122,18 @@ public class CerebrasCodeDictationService : ICodeDictationService
         }
     }
 
-    private static string GetSystemPrompt(string language)
+    private static string GetSystemPrompt(string language, string? customPrompt)
     {
+        // Use custom prompt if provided (for Python)
+        if (language.ToLowerInvariant() == "python" && !string.IsNullOrWhiteSpace(customPrompt))
+        {
+            return customPrompt;
+        }
+        
         if (language.ToLowerInvariant() == "python")
         {
-            return @"You are a voice-to-code converter. Convert natural language dictation to Python code.
-
-RULES:
-1. Output ONLY valid Python code - no explanations, no markdown code fences, no comments unless requested.
-2. Use 4-space indentation for Python.
-3. Convert spoken words to proper syntax:
-   - ""for i in range n"" → for i in range(n):
-   - ""for i in range 10"" → for i in range(10):
-   - ""my variable equals 5"" → my_variable = 5
-   - ""counter plus equals 1"" → counter += 1
-   - ""if x greater than y"" → if x > y:
-   - ""if x is not equal to y"" → if x != y:
-   - ""while true"" → while True:
-   - ""define function foo"" → def foo():
-   - ""define function add that takes a and b"" → def add(a, b):
-   - ""class person"" → class Person:
-   - ""import numpy as np"" → import numpy as np
-   - ""from collections import defaultdict"" → from collections import defaultdict
-   - ""return x"" → return x
-   - ""print hello world"" → print(""hello world"")
-   - ""comment this is a test"" → # this is a test
-   - ""docstring this function calculates sum"" → """"""This function calculates sum.""""""
-4. Handle compound statements properly with correct indentation.
-5. Variable naming: Use snake_case for variables.
-6. Recognize numbers: ""one"" → 1, ""ten"" → 10, ""hundred"" → 100.
-7. Boolean values: ""true"" → True, ""false"" → False, ""none"" → None.
-8. List operations: ""append x to list"" → list.append(x).
-9. String quotes: Use double quotes for strings.
-
-OUTPUT: Only the Python code, nothing else. No markdown, no explanations.";
+            // Use the shared default prompt from OpenAICodeDictationService
+            return OpenAICodeDictationService.DefaultPythonPrompt;
         }
         
         return $"Convert natural language dictation to {language} code. Output only valid code, no markdown or explanations.";

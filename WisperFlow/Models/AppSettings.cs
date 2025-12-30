@@ -199,6 +199,13 @@ public class AppSettings
     /// Opt out of Deepgram Model Improvement Program (privacy).
     /// </summary>
     public bool DeepgramMipOptOut { get; set; } = false;
+
+    // ===== Custom Prompts =====
+    
+    /// <summary>
+    /// Custom prompt for code dictation (Python). Empty = use default.
+    /// </summary>
+    public string CustomCodeDictationPrompt { get; set; } = string.Empty;
 }
 
 /// <summary>

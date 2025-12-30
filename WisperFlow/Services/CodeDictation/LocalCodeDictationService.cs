@@ -16,6 +16,7 @@ public class LocalCodeDictationService : ICodeDictationService
     private readonly ModelManager _modelManager;
     private readonly ModelInfo _model;
     private readonly ILogger<LocalCodeDictationService> _logger;
+    private readonly string? _customPrompt;
     
     private LLamaWeights? _weights;
     private LLamaContext? _context;
@@ -27,11 +28,13 @@ public class LocalCodeDictationService : ICodeDictationService
     public LocalCodeDictationService(
         ModelManager modelManager,
         ModelInfo model,
-        ILogger<LocalCodeDictationService> logger)
+        ILogger<LocalCodeDictationService> logger,
+        string? customPrompt = null)
     {
         _modelManager = modelManager;
         _model = model;
         _logger = logger;
+        _customPrompt = customPrompt;
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -137,7 +140,7 @@ public class LocalCodeDictationService : ICodeDictationService
 
     private string BuildPrompt(string input, string language)
     {
-        var systemPrompt = GetSystemPrompt(language);
+        var systemPrompt = GetSystemPrompt(language, _customPrompt);
         
         return _model.PromptTemplate switch
         {
@@ -151,42 +154,18 @@ public class LocalCodeDictationService : ICodeDictationService
         };
     }
 
-    private static string GetSystemPrompt(string language)
+    private static string GetSystemPrompt(string language, string? customPrompt)
     {
+        // Use custom prompt if provided (for Python)
+        if (language.ToLowerInvariant() == "python" && !string.IsNullOrWhiteSpace(customPrompt))
+        {
+            return customPrompt;
+        }
+        
         if (language.ToLowerInvariant() == "python")
         {
-            return @"You are a voice-to-code converter. Convert natural language dictation to Python code.
-
-RULES:
-1. Output ONLY valid Python code - no explanations, no markdown, no comments unless requested.
-2. Use 4-space indentation for Python.
-3. Convert spoken words to proper syntax:
-   - ""for i in range n"" → for i in range(n):
-   - ""for i in range 10"" → for i in range(10):
-   - ""my variable equals 5"" → my_variable = 5
-   - ""counter plus equals 1"" → counter += 1
-   - ""if x greater than y"" → if x > y:
-   - ""if x is not equal to y"" → if x != y:
-   - ""while true"" → while True:
-   - ""define function foo"" → def foo():
-   - ""define function add that takes a and b"" → def add(a, b):
-   - ""class person"" → class Person:
-   - ""import numpy as np"" → import numpy as np
-   - ""from collections import defaultdict"" → from collections import defaultdict
-   - ""return x"" → return x
-   - ""print hello world"" → print(""hello world"")
-   - ""comment this is a test"" → # this is a test
-   - ""docstring this function calculates sum"" → """"""This function calculates sum.""""""
-4. Handle compound statements:
-   - ""for item in my list colon print item"" → for item in my_list:\n    print(item)
-5. Variable naming: Use snake_case for variables (""my variable"" → my_variable).
-6. Recognize numbers: ""one"" → 1, ""ten"" → 10, ""hundred"" → 100.
-7. Boolean values: ""true"" → True, ""false"" → False, ""none"" → None.
-8. List operations: ""append x to list"" → list.append(x).
-9. String quotes: Use double quotes for strings.
-10. Operators: ""plus""/""add"" → +, ""minus""/""subtract"" → -, ""times""/""multiply"" → *, ""divided by"" → /, ""modulo""/""mod"" → %.
-
-OUTPUT: Only the Python code, nothing else.";
+            // Use the shared default prompt from OpenAICodeDictationService
+            return OpenAICodeDictationService.DefaultPythonPrompt;
         }
         
         // Default for other languages (future)
