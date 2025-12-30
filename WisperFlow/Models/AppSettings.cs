@@ -89,6 +89,12 @@ public class AppSettings
     /// </summary>
     public string CommandModeSearchEngine { get; set; } = "ChatGPT";
 
+    /// <summary>
+    /// Selected LLM model for command mode (separate from polish model).
+    /// This model handles transform and generate commands.
+    /// </summary>
+    public string CommandModeModelId { get; set; } = "openai-gpt4o-mini";
+
     // ===== Code Dictation Mode Settings =====
     
     /// <summary>

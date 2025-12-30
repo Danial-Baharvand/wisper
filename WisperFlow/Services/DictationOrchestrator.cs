@@ -22,6 +22,7 @@ public class DictationOrchestrator
 
     private ITranscriptionService? _transcriptionService;
     private IPolishService? _polishService;
+    private IPolishService? _commandModeService;  // Separate LLM service for command mode
     private ICodeDictationService? _codeDictationService;
     private DeepgramStreamingService? _streamingService;  // For real-time streaming
     private CancellationTokenSource? _currentOperationCts;
@@ -86,6 +87,14 @@ public class DictationOrchestrator
             _polishService?.Dispose();
             _polishService = _serviceFactory.CreatePolishService(settings.PolishModelId);
             _logger.LogInformation("Polish model: {Model}", settings.PolishModelId);
+        }
+
+        // Update command mode service if model changed (separate from polish)
+        if (_commandModeService?.ModelId != settings.CommandModeModelId)
+        {
+            _commandModeService?.Dispose();
+            _commandModeService = _serviceFactory.CreatePolishService(settings.CommandModeModelId);
+            _logger.LogInformation("Command mode model: {Model}", settings.CommandModeModelId);
         }
 
         // Update code dictation service if model changed
@@ -516,7 +525,7 @@ public class DictationOrchestrator
         try
         {
             _transcriptionService ??= _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
-            _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
+            _commandModeService ??= _serviceFactory.CreatePolishService(settings.CommandModeModelId);
 
             // Initialize transcription if needed
             if (!_transcriptionService.IsReady)
@@ -609,19 +618,19 @@ public class DictationOrchestrator
         _logger.LogDebug("Original text: '{Text}'", selectedText.Length > 100 ? selectedText[..100] + "..." : selectedText);
 
         var settings = _settingsManager.CurrentSettings;
-        _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
+        _commandModeService ??= _serviceFactory.CreatePolishService(settings.CommandModeModelId);
 
-        if (!_polishService.IsReady)
+        if (!_commandModeService.IsReady)
         {
-            _logger.LogInformation("Initializing polish service...");
-            await _polishService.InitializeAsync(cancellationToken);
+            _logger.LogInformation("Initializing command mode service...");
+            await _commandModeService.InitializeAsync(cancellationToken);
         }
 
         _logger.LogDebug("Calling TransformAsync...");
         string transformedText;
         try
         {
-            transformedText = await _polishService.TransformAsync(selectedText, command, cancellationToken);
+            transformedText = await _commandModeService.TransformAsync(selectedText, command, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {
@@ -662,18 +671,18 @@ public class DictationOrchestrator
         _logger.LogInformation("Generating text with instruction: '{Instruction}'", instruction);
 
         var settings = _settingsManager.CurrentSettings;
-        _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
+        _commandModeService ??= _serviceFactory.CreatePolishService(settings.CommandModeModelId);
 
-        if (!_polishService.IsReady)
+        if (!_commandModeService.IsReady)
         {
-            _logger.LogInformation("Initializing polish service...");
-            await _polishService.InitializeAsync(cancellationToken);
+            _logger.LogInformation("Initializing command mode service...");
+            await _commandModeService.InitializeAsync(cancellationToken);
         }
 
         string generatedText;
         try
         {
-            generatedText = await _polishService.GenerateAsync(instruction, cancellationToken);
+            generatedText = await _commandModeService.GenerateAsync(instruction, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {

@@ -385,6 +385,23 @@
                                          LostFocus="CommandHotkeyTextBox_LostFocus"
                                          Margin="0,0,0,16"/>
                                 
+                                <TextBlock Text="LLM Model for Commands" Style="{StaticResource OptionLabel}"/>
+                                <TextBlock Text="Used for text transformation and generation" 
+                                           FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" 
+                                           Margin="0,0,0,8"/>
+                                <Grid Margin="0,0,0,16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="CommandModeModelComboBox" 
+                                              Style="{StaticResource ModernComboBox}"
+                                              SelectionChanged="CommandModeModel_Changed"/>
+                                    <Button Grid.Column="1" Content="Manage"
+                                            Style="{StaticResource ModernButton}"
+                                            Click="ManageModels_Click" Margin="8,0,0,0"/>
+                                </Grid>
+                                
                                 <TextBlock Text="When no text is selected, open in:" Style="{StaticResource OptionLabel}"/>
                                 <ComboBox x:Name="SearchEngineComboBox" Style="{StaticResource ModernComboBox}" 
                                           Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"/>
@@ -392,9 +409,11 @@
                                 <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="12">
                                     <TextBlock TextWrapping="Wrap" FontSize="11" 
                                                Foreground="{StaticResource TextSecondaryBrush}">
-                                        • With text selected: transforms the text (e.g., "make this formal")
+                                        • With text selected: transforms the text using the LLM model above
                                         <LineBreak/>
-                                        • No selection: opens query in AI chat
+                                        • Text input focused, no selection: generates text with instruction
+                                        <LineBreak/>
+                                        • No text input focused: opens query in AI chat
                                     </TextBlock>
                                 </Border>
                             </StackPanel>

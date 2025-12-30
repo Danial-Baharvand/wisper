@@ -355,6 +355,23 @@ public partial class SettingsWindow : Window
         if (PolishModelComboBox.SelectedItem == null)
             PolishModelComboBox.SelectedIndex = 0;
         
+        // Command Mode models (same LLM models, but separate selection)
+        CommandModeModelComboBox.Items.Clear();
+        foreach (var model in ModelCatalog.LLMModels)
+        {
+            // Skip "Disabled" option for Command Mode - it needs a working model
+            if (model.Id == "polish-disabled") continue;
+            
+            var installed = _modelManager.IsModelInstalled(model);
+            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
+            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
+            CommandModeModelComboBox.Items.Add(item);
+            if (_settings.CommandModeModelId == model.Id)
+                CommandModeModelComboBox.SelectedItem = item;
+        }
+        if (CommandModeModelComboBox.SelectedItem == null)
+            CommandModeModelComboBox.SelectedIndex = 0;
+        
         UpdateModelDescriptions();
     }
 
@@ -397,6 +414,13 @@ public partial class SettingsWindow : Window
     private void TranscriptionModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
     private void PolishModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
     private void CodeDictationModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateCodeDictationModelDescription();
+    private void CommandModeModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateCommandModeModelDescription();
+    
+    private void UpdateCommandModeModelDescription()
+    {
+        // Update model description for command mode if needed (currently no description label)
+        // This can be expanded to show model status/requirements
+    }
     
     private void PopulateCodeDictationModels()
     {
@@ -733,6 +757,8 @@ public partial class SettingsWindow : Window
             _settings.TranscriptionModelId = transItem.Tag?.ToString() ?? "openai-whisper";
         if (PolishModelComboBox.SelectedItem is ComboBoxItem polishItem)
             _settings.PolishModelId = polishItem.Tag?.ToString() ?? "openai-gpt4o-mini";
+        if (CommandModeModelComboBox.SelectedItem is ComboBoxItem cmdItem)
+            _settings.CommandModeModelId = cmdItem.Tag?.ToString() ?? "openai-gpt4o-mini";
             
         // Deepgram settings
         _settings.DeepgramStreaming = DeepgramStreamingCheckBox.IsChecked ?? false;
