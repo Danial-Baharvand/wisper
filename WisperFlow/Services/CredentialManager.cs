@@ -6,12 +6,13 @@ namespace WisperFlow.Services;
 
 /// <summary>
 /// Manages secure storage of API keys using Windows Credential Manager.
-/// Supports OpenAI and Deepgram API keys.
+/// Supports OpenAI, Deepgram, and Cerebras API keys.
 /// </summary>
 public static class CredentialManager
 {
     private const string CredentialTarget = "WisperFlow_OpenAI_ApiKey";
     private const string DeepgramCredentialTarget = "WisperFlow_Deepgram_ApiKey";
+    private const string CerebrasCredentialTarget = "WisperFlow_Cerebras_ApiKey";
 
     /// <summary>
     /// Saves the API key to Windows Credential Manager.
@@ -188,6 +189,96 @@ public static class CredentialManager
 
         // Check Credential Manager
         var storedKey = GetDeepgramApiKey();
+        return !string.IsNullOrWhiteSpace(storedKey);
+    }
+
+    // ===== Cerebras API Key Methods =====
+
+    /// <summary>
+    /// Saves the Cerebras API key to Windows Credential Manager.
+    /// </summary>
+    public static bool SaveCerebrasApiKey(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            DeleteCerebrasApiKey();
+            return true;
+        }
+
+        var credentialBlob = Encoding.Unicode.GetBytes(apiKey);
+
+        var credential = new CREDENTIAL
+        {
+            Type = CRED_TYPE_GENERIC,
+            TargetName = CerebrasCredentialTarget,
+            CredentialBlobSize = (uint)credentialBlob.Length,
+            CredentialBlob = Marshal.AllocHGlobal(credentialBlob.Length),
+            Persist = CRED_PERSIST_LOCAL_MACHINE,
+            UserName = "WisperFlow"
+        };
+
+        try
+        {
+            Marshal.Copy(credentialBlob, 0, credential.CredentialBlob, credentialBlob.Length);
+            return CredWrite(ref credential, 0);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(credential.CredentialBlob);
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the Cerebras API key from Windows Credential Manager.
+    /// </summary>
+    public static string? GetCerebrasApiKey()
+    {
+        if (!CredRead(CerebrasCredentialTarget, CRED_TYPE_GENERIC, 0, out var credentialPtr))
+        {
+            return null;
+        }
+
+        try
+        {
+            var credential = Marshal.PtrToStructure<CREDENTIAL>(credentialPtr);
+            if (credential.CredentialBlob == IntPtr.Zero || credential.CredentialBlobSize == 0)
+            {
+                return null;
+            }
+
+            var credentialBlob = new byte[credential.CredentialBlobSize];
+            Marshal.Copy(credential.CredentialBlob, credentialBlob, 0, (int)credential.CredentialBlobSize);
+            
+            return Encoding.Unicode.GetString(credentialBlob);
+        }
+        finally
+        {
+            CredFree(credentialPtr);
+        }
+    }
+
+    /// <summary>
+    /// Deletes the Cerebras API key from Windows Credential Manager.
+    /// </summary>
+    public static bool DeleteCerebrasApiKey()
+    {
+        return CredDelete(CerebrasCredentialTarget, CRED_TYPE_GENERIC, 0);
+    }
+
+    /// <summary>
+    /// Checks if a Cerebras API key is stored (either in Credential Manager or environment).
+    /// </summary>
+    public static bool HasCerebrasApiKey()
+    {
+        // Check environment variable first
+        var envKey = Environment.GetEnvironmentVariable("CEREBRAS_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envKey))
+        {
+            return true;
+        }
+
+        // Check Credential Manager
+        var storedKey = GetCerebrasApiKey();
         return !string.IsNullOrWhiteSpace(storedKey);
     }
 

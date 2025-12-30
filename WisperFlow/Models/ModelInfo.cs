@@ -28,7 +28,7 @@ public class ModelInfo
 }
 
 public enum ModelType { Whisper, LLM }
-public enum ModelSource { OpenAI, Local, FasterWhisper, Deepgram }
+public enum ModelSource { OpenAI, Local, FasterWhisper, Deepgram, Cerebras }
 
 public class DownloadProgress
 {
@@ -305,6 +305,68 @@ public static class ModelCatalog
         SizeBytes = 0
     };
     
+    // ===== CEREBRAS MODELS (Cloud API - Fastest inference) =====
+    
+    public static readonly ModelInfo CerebrasLlama33_70B = new()
+    {
+        Id = "cerebras-llama-3.3-70b",
+        Name = "⚡ Cerebras Llama 3.3 70B",
+        Description = "Flagship model, 2200+ tokens/sec",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo CerebrasLlama31_8B = new()
+    {
+        Id = "cerebras-llama3.1-8b",
+        Name = "⚡ Cerebras Llama 3.1 8B",
+        Description = "Fast & efficient 8B model",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo CerebrasGptOss120B = new()
+    {
+        Id = "cerebras-gpt-oss-120b",
+        Name = "⚡ Cerebras GPT-OSS 120B",
+        Description = "Open-source 120B model, very capable",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo CerebrasQwen3_32B = new()
+    {
+        Id = "cerebras-qwen-3-32b",
+        Name = "⚡ Cerebras Qwen 3 32B",
+        Description = "Qwen 3 32B, great reasoning",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo CerebrasQwen3_235B = new()
+    {
+        Id = "cerebras-qwen-3-235b-a22b",
+        Name = "⚡ Cerebras Qwen 3 235B",
+        Description = "Largest Qwen, MoE architecture",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo CerebrasZaiGlm = new()
+    {
+        Id = "cerebras-zai-glm-4.6",
+        Name = "⚡ Cerebras ZAI-GLM 4.6",
+        Description = "ZAI GLM 4.6 model",
+        Type = ModelType.LLM,
+        Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
     public static readonly ModelInfo PolishDisabled = new()
     {
         Id = "polish-disabled",
@@ -454,6 +516,9 @@ public static class ModelCatalog
         PolishDisabled,
         // Cloud models (API)
         OpenAIGpt5Mini, OpenAIGpt4oMini, 
+        // Cerebras Cloud (fastest inference)
+        CerebrasLlama33_70B, CerebrasLlama31_8B, CerebrasGptOss120B,
+        CerebrasQwen3_32B, CerebrasQwen3_235B, CerebrasZaiGlm,
         // Best local models (2024/2025)
         Qwen25_3B, Qwen3_1B, Gemma2_2B, Llama32_3B, SmolLM2_1B,
         // Other local models
@@ -468,6 +533,9 @@ public static class ModelCatalog
     {
         // Cloud models (API) - always included
         OpenAIGpt5Mini, OpenAIGpt4oMini,
+        // Cerebras Cloud (fastest inference)
+        CerebrasLlama33_70B, CerebrasLlama31_8B, CerebrasGptOss120B,
+        CerebrasQwen3_32B, CerebrasQwen3_235B, CerebrasZaiGlm,
         // 3B+ local models only (recommended for code)
         Qwen25_3B,      // 3B - best overall quality
         Llama32_3B,     // 3B - strong generalist

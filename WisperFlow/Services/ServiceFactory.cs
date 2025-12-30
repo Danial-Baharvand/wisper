@@ -69,6 +69,15 @@ public class ServiceFactory
                 customNotesPrompt);
         }
 
+        if (model.Source == ModelSource.Cerebras)
+        {
+            return new CerebrasPolishService(
+                _loggerFactory.CreateLogger<CerebrasPolishService>(),
+                modelId,
+                customTypingPrompt,
+                customNotesPrompt);
+        }
+
         if (model.Id == "polish-disabled")
         {
             return new DisabledPolishService();
@@ -93,6 +102,14 @@ public class ServiceFactory
             return new OpenAICodeDictationService(
                 apiModel,
                 _loggerFactory.CreateLogger<OpenAICodeDictationService>());
+        }
+
+        if (model.Source == ModelSource.Cerebras)
+        {
+            // Use Cerebras API for code dictation
+            return new CerebrasCodeDictationService(
+                model,
+                _loggerFactory.CreateLogger<CerebrasCodeDictationService>());
         }
 
         // Use local LLM for code dictation

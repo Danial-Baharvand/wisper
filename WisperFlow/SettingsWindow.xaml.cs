@@ -271,6 +271,19 @@ public partial class SettingsWindow : Window
             DeepgramApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
             DeepgramApiKeyStatusText.Text = "No API key found (required for Deepgram models)";
         }
+        
+        // Cerebras API Key status
+        var hasCerebrasKey = CredentialManager.HasCerebrasApiKey();
+        if (hasCerebrasKey)
+        {
+            CerebrasApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170));
+            CerebrasApiKeyStatusText.Text = "API key configured";
+        }
+        else
+        {
+            CerebrasApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
+            CerebrasApiKeyStatusText.Text = "No API key found (required for Cerebras models)";
+        }
     }
 
     private void PopulateModels()
@@ -410,7 +423,19 @@ public partial class SettingsWindow : Window
         if (PolishModelComboBox.SelectedItem is ComboBoxItem pi && pi.Tag is string pid)
         {
             var model = ModelCatalog.GetById(pid);
-            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            string status;
+            if (model?.Source == ModelSource.Cerebras)
+            {
+                status = CredentialManager.HasCerebrasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
+            else if (model?.Source == ModelSource.OpenAI)
+            {
+                status = CredentialManager.HasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
+            else
+            {
+                status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            }
             PolishModelDesc.Text = (model?.Description ?? "") + status;
         }
     }
@@ -828,6 +853,26 @@ public partial class SettingsWindow : Window
         PopulateModels(); // Refresh model availability
         
         MessageBox.Show("Deepgram API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void SaveCerebrasApiKey_Click(object sender, RoutedEventArgs e)
+    {
+        var apiKey = CerebrasApiKeyPasswordBox.Password.Trim();
+        
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            CredentialManager.DeleteCerebrasApiKey();
+        }
+        else
+        {
+            CredentialManager.SaveCerebrasApiKey(apiKey);
+        }
+        
+        CerebrasApiKeyPasswordBox.Password = "";
+        UpdateApiKeyStatus();
+        PopulateModels(); // Refresh model availability
+        
+        MessageBox.Show("Cerebras API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
