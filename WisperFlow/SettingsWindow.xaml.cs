@@ -18,8 +18,13 @@ public partial class SettingsWindow : Window
     private readonly AudioRecorder _audioRecorder;
     private readonly ModelManager _modelManager;
     private AppSettings _settings;
+    
+    // Hotkey capture state
     private bool _isCapturingHotkey;
     private HotkeyModifiers _capturedModifiers;
+    private TextBox? _activeHotkeyTextBox;
+    private HotkeyModifiers _commandCapturedModifiers;
+    private HotkeyModifiers _codeDictationCapturedModifiers;
 
     public SettingsWindow(
         SettingsManager settingsManager,
@@ -40,16 +45,25 @@ public partial class SettingsWindow : Window
         PopulateLanguages();
         PopulateModels();
         PopulateSearchEngines();
+        PopulateCodeDictationModels();
+        PopulateCodeDictationLanguages();
         UpdateApiKeyStatus();
     }
 
     private void LoadSettings()
     {
-        // Hotkey
+        // Regular dictation hotkey
         HotkeyTextBox.Text = FormatHotkey(_settings.HotkeyModifiers);
 
         // Command mode
         CommandModeCheckBox.IsChecked = _settings.CommandModeEnabled;
+        CommandHotkeyTextBox.Text = FormatHotkey(_settings.CommandHotkeyModifiers);
+        _commandCapturedModifiers = _settings.CommandHotkeyModifiers;
+        
+        // Code dictation
+        CodeDictationCheckBox.IsChecked = _settings.CodeDictationEnabled;
+        CodeDictationHotkeyTextBox.Text = FormatHotkey(_settings.CodeDictationHotkeyModifiers);
+        _codeDictationCapturedModifiers = _settings.CodeDictationHotkeyModifiers;
 
         // Polish settings
         PolishCheckBox.IsChecked = _settings.PolishOutput;
@@ -262,6 +276,49 @@ public partial class SettingsWindow : Window
 
     private void TranscriptionModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
     private void PolishModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
+    private void CodeDictationModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateCodeDictationModelDescription();
+    
+    private void PopulateCodeDictationModels()
+    {
+        CodeDictationModelComboBox.Items.Clear();
+        foreach (var model in ModelCatalog.CodeDictationModels)
+        {
+            var installed = _modelManager.IsModelInstalled(model);
+            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
+            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
+            CodeDictationModelComboBox.Items.Add(item);
+            if (_settings.CodeDictationModelId == model.Id)
+                CodeDictationModelComboBox.SelectedItem = item;
+        }
+        if (CodeDictationModelComboBox.SelectedItem == null)
+            CodeDictationModelComboBox.SelectedIndex = 0;
+        
+        UpdateCodeDictationModelDescription();
+    }
+    
+    private void PopulateCodeDictationLanguages()
+    {
+        CodeDictationLanguageComboBox.Items.Clear();
+        foreach (var (code, name) in ModelCatalog.CodeDictationLanguages)
+        {
+            var item = new ComboBoxItem { Content = name, Tag = code };
+            CodeDictationLanguageComboBox.Items.Add(item);
+            if (_settings.CodeDictationLanguage == code)
+                CodeDictationLanguageComboBox.SelectedItem = item;
+        }
+        if (CodeDictationLanguageComboBox.SelectedItem == null)
+            CodeDictationLanguageComboBox.SelectedIndex = 0;
+    }
+    
+    private void UpdateCodeDictationModelDescription()
+    {
+        if (CodeDictationModelComboBox.SelectedItem is ComboBoxItem item && item.Tag is string id)
+        {
+            var model = ModelCatalog.GetById(id);
+            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            CodeDictationModelDesc.Text = (model?.Description ?? "") + status;
+        }
+    }
 
     private void ManageModels_Click(object sender, RoutedEventArgs e)
     {
@@ -348,6 +405,136 @@ public partial class SettingsWindow : Window
             Keyboard.ClearFocus();
         }
     }
+    
+    // ===== Command Mode Hotkey Capture =====
+    
+    private void CommandHotkeyTextBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        _isCapturingHotkey = true;
+        _commandCapturedModifiers = HotkeyModifiers.None;
+        _activeHotkeyTextBox = CommandHotkeyTextBox;
+        CommandHotkeyTextBox.Text = "Hold modifier keys, then release...";
+    }
+
+    private void CommandHotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        _isCapturingHotkey = false;
+        _activeHotkeyTextBox = null;
+        
+        if (_commandCapturedModifiers == HotkeyModifiers.None)
+        {
+            CommandHotkeyTextBox.Text = FormatHotkey(_settings.CommandHotkeyModifiers);
+        }
+    }
+
+    private void CommandHotkeyTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != CommandHotkeyTextBox) return;
+
+        e.Handled = true;
+        
+        // Accumulate modifier keys
+        if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            _commandCapturedModifiers |= HotkeyModifiers.Control;
+        if (Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt))
+            _commandCapturedModifiers |= HotkeyModifiers.Alt;
+        if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift))
+            _commandCapturedModifiers |= HotkeyModifiers.Shift;
+        if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin))
+            _commandCapturedModifiers |= HotkeyModifiers.Win;
+
+        if (_commandCapturedModifiers != HotkeyModifiers.None)
+        {
+            CommandHotkeyTextBox.Text = FormatHotkey(_commandCapturedModifiers) + " (release to confirm)";
+        }
+    }
+
+    private void CommandHotkeyTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != CommandHotkeyTextBox) return;
+
+        e.Handled = true;
+
+        bool anyModifierPressed = 
+            Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) ||
+            Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt) ||
+            Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ||
+            Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin);
+
+        if (!anyModifierPressed && _commandCapturedModifiers != HotkeyModifiers.None)
+        {
+            _settings.CommandHotkeyModifiers = _commandCapturedModifiers;
+            CommandHotkeyTextBox.Text = FormatHotkey(_commandCapturedModifiers);
+            _isCapturingHotkey = false;
+            _activeHotkeyTextBox = null;
+            Keyboard.ClearFocus();
+        }
+    }
+    
+    // ===== Code Dictation Hotkey Capture =====
+    
+    private void CodeDictationHotkeyTextBox_GotFocus(object sender, RoutedEventArgs e)
+    {
+        _isCapturingHotkey = true;
+        _codeDictationCapturedModifiers = HotkeyModifiers.None;
+        _activeHotkeyTextBox = CodeDictationHotkeyTextBox;
+        CodeDictationHotkeyTextBox.Text = "Hold modifier keys, then release...";
+    }
+
+    private void CodeDictationHotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        _isCapturingHotkey = false;
+        _activeHotkeyTextBox = null;
+        
+        if (_codeDictationCapturedModifiers == HotkeyModifiers.None)
+        {
+            CodeDictationHotkeyTextBox.Text = FormatHotkey(_settings.CodeDictationHotkeyModifiers);
+        }
+    }
+
+    private void CodeDictationHotkeyTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != CodeDictationHotkeyTextBox) return;
+
+        e.Handled = true;
+        
+        // Accumulate modifier keys
+        if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            _codeDictationCapturedModifiers |= HotkeyModifiers.Control;
+        if (Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt))
+            _codeDictationCapturedModifiers |= HotkeyModifiers.Alt;
+        if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift))
+            _codeDictationCapturedModifiers |= HotkeyModifiers.Shift;
+        if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin))
+            _codeDictationCapturedModifiers |= HotkeyModifiers.Win;
+
+        if (_codeDictationCapturedModifiers != HotkeyModifiers.None)
+        {
+            CodeDictationHotkeyTextBox.Text = FormatHotkey(_codeDictationCapturedModifiers) + " (release to confirm)";
+        }
+    }
+
+    private void CodeDictationHotkeyTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != CodeDictationHotkeyTextBox) return;
+
+        e.Handled = true;
+
+        bool anyModifierPressed = 
+            Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) ||
+            Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt) ||
+            Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ||
+            Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin);
+
+        if (!anyModifierPressed && _codeDictationCapturedModifiers != HotkeyModifiers.None)
+        {
+            _settings.CodeDictationHotkeyModifiers = _codeDictationCapturedModifiers;
+            CodeDictationHotkeyTextBox.Text = FormatHotkey(_codeDictationCapturedModifiers);
+            _isCapturingHotkey = false;
+            _activeHotkeyTextBox = null;
+            Keyboard.ClearFocus();
+        }
+    }
 
     private void SaveApiKey_Click(object sender, RoutedEventArgs e)
     {
@@ -379,6 +566,15 @@ public partial class SettingsWindow : Window
         _settings.CommandModeEnabled = CommandModeCheckBox.IsChecked ?? true;
         if (SearchEngineComboBox.SelectedItem is ComboBoxItem searchItem)
             _settings.CommandModeSearchEngine = searchItem.Tag?.ToString() ?? "ChatGPT";
+        // CommandHotkeyModifiers is already set during capture
+
+        // Code dictation
+        _settings.CodeDictationEnabled = CodeDictationCheckBox.IsChecked ?? true;
+        if (CodeDictationModelComboBox.SelectedItem is ComboBoxItem codeModelItem)
+            _settings.CodeDictationModelId = codeModelItem.Tag?.ToString() ?? "qwen2.5-3b";
+        if (CodeDictationLanguageComboBox.SelectedItem is ComboBoxItem codeLangItem)
+            _settings.CodeDictationLanguage = codeLangItem.Tag?.ToString() ?? "python";
+        // CodeDictationHotkeyModifiers is already set during capture
 
         // Microphone
         if (MicrophoneComboBox.SelectedItem is ComboBoxItem micItem)

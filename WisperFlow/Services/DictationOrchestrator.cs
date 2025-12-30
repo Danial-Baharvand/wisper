@@ -1,12 +1,14 @@
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.CodeDictation;
 using WisperFlow.Services.Polish;
 using WisperFlow.Services.Transcription;
 
 namespace WisperFlow.Services;
 
 /// <summary>
-/// Orchestrates the entire dictation flow: hotkey -> record -> transcribe -> polish -> inject.
+/// Orchestrates the entire dictation flow: hotkey -> record -> transcribe -> polish/code -> inject.
+/// Supports three modes: Regular Dictation, Command Mode, and Code Dictation.
 /// </summary>
 public class DictationOrchestrator
 {
@@ -20,11 +22,13 @@ public class DictationOrchestrator
 
     private ITranscriptionService? _transcriptionService;
     private IPolishService? _polishService;
+    private ICodeDictationService? _codeDictationService;
     private CancellationTokenSource? _currentOperationCts;
     private bool _isEnabled = true;
     private bool _isProcessing;
     private bool _servicesInitializing;
     private bool _isCommandMode;  // Track if we're processing a command
+    private bool _isCodeDictationMode;  // Track if we're processing code dictation
     private string? _commandModeSelectedText;  // Selected text captured at command stop
     private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
@@ -50,6 +54,8 @@ public class DictationOrchestrator
         _hotkeyManager.RecordStop += OnRecordStop;
         _hotkeyManager.CommandRecordStart += OnCommandRecordStart;
         _hotkeyManager.CommandRecordStop += OnCommandRecordStop;
+        _hotkeyManager.CodeDictationRecordStart += OnCodeDictationRecordStart;
+        _hotkeyManager.CodeDictationRecordStop += OnCodeDictationRecordStop;
         _audioRecorder.MaxDurationReached += OnMaxDurationReached;
         _audioRecorder.RecordingProgress += OnRecordingProgress;
     }
@@ -80,11 +86,22 @@ public class DictationOrchestrator
             _logger.LogInformation("Polish model: {Model}", settings.PolishModelId);
         }
 
+        // Update code dictation service if model changed
+        if (_codeDictationService?.ModelId != settings.CodeDictationModelId)
+        {
+            _codeDictationService?.Dispose();
+            _codeDictationService = _serviceFactory.CreateCodeDictationService(settings.CodeDictationModelId);
+            _logger.LogInformation("Code dictation model: {Model}", settings.CodeDictationModelId);
+        }
+
         // Register command mode hotkey
         _hotkeyManager.RegisterCommandHotkey(settings.CommandHotkeyModifiers, settings.CommandModeEnabled);
+        
+        // Register code dictation hotkey
+        _hotkeyManager.RegisterCodeDictationHotkey(settings.CodeDictationHotkeyModifiers, settings.CodeDictationEnabled);
 
-        _logger.LogInformation("Settings applied: Enabled={Enabled}, Polish={Polish}, CommandMode={CommandMode}", 
-            settings.HotkeyEnabled, settings.PolishOutput, settings.CommandModeEnabled);
+        _logger.LogInformation("Settings applied: Enabled={Enabled}, Polish={Polish}, CommandMode={CommandMode}, CodeDictation={CodeDictation}", 
+            settings.HotkeyEnabled, settings.PolishOutput, settings.CommandModeEnabled, settings.CodeDictationEnabled);
     }
 
     public async Task InitializeServicesAsync()
@@ -530,5 +547,137 @@ public class DictationOrchestrator
         _overlayWindow.Hide();
         await ClipboardHelper.ReplaceSelectedTextAsync(generatedText);
         _logger.LogInformation("Inserted generated text");
+    }
+
+    // ===== Code Dictation Mode Handlers =====
+
+    private void OnCodeDictationRecordStart(object? sender, EventArgs e)
+    {
+        if (!_isEnabled || _isProcessing) return;
+        if (_servicesInitializing)
+        {
+            _overlayWindow.ShowError("Models loading...");
+            return;
+        }
+
+        try
+        {
+            _currentOperationCts = new CancellationTokenSource();
+            _isCodeDictationMode = true;
+            
+            // Start recording and show overlay
+            _overlayWindow.ShowRecording("Code Dictation");
+            _audioRecorder.StartRecording();
+            _logger.LogInformation("Code dictation recording started");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start code dictation recording");
+            _overlayWindow.ShowError("Failed to start recording");
+            _isCodeDictationMode = false;
+        }
+    }
+
+    private async void OnCodeDictationRecordStop(object? sender, EventArgs e)
+    {
+        if (!_audioRecorder.IsRecording) return;
+
+        var audioFilePath = _audioRecorder.StopRecording();
+        if (string.IsNullOrEmpty(audioFilePath))
+        {
+            _overlayWindow.Hide();
+            _isCodeDictationMode = false;
+            return;
+        }
+
+        await ProcessCodeDictationAsync(audioFilePath);
+    }
+
+    private async Task ProcessCodeDictationAsync(string audioFilePath)
+    {
+        _isProcessing = true;
+        var settings = _settingsManager.CurrentSettings;
+        var cts = _currentOperationCts;
+
+        try
+        {
+            _transcriptionService ??= _serviceFactory.CreateTranscriptionService(settings.TranscriptionModelId);
+            _codeDictationService ??= _serviceFactory.CreateCodeDictationService(settings.CodeDictationModelId);
+
+            // Initialize transcription if needed
+            if (!_transcriptionService.IsReady)
+            {
+                _overlayWindow.ShowTranscribing("Loading model...");
+                await _transcriptionService.InitializeAsync(cts?.Token ?? CancellationToken.None);
+            }
+
+            _overlayWindow.ShowTranscribing("Converting speech...");
+            _logger.LogInformation("Processing code dictation with {Model}...", _transcriptionService.ModelId);
+
+            // Transcribe the spoken code
+            var rawTranscript = await _transcriptionService.TranscribeAsync(
+                audioFilePath,
+                settings.Language == "auto" ? null : settings.Language,
+                cts?.Token ?? CancellationToken.None);
+
+            if (string.IsNullOrWhiteSpace(rawTranscript))
+            {
+                _overlayWindow.ShowError("No speech detected");
+                return;
+            }
+
+            _logger.LogInformation("Raw transcript: {Transcript}", rawTranscript);
+
+            // Initialize code dictation service if needed
+            if (!_codeDictationService.IsReady)
+            {
+                _overlayWindow.ShowPolishing("Loading code model...");
+                await _codeDictationService.InitializeAsync(cts?.Token ?? CancellationToken.None);
+            }
+
+            // Convert to code
+            _overlayWindow.ShowPolishing("Generating code...");
+            var code = await _codeDictationService.ConvertToCodeAsync(
+                rawTranscript.Trim(),
+                settings.CodeDictationLanguage,
+                cts?.Token ?? CancellationToken.None);
+
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                _logger.LogWarning("Code conversion returned empty");
+                _overlayWindow.ShowError("Code conversion failed");
+                return;
+            }
+
+            _logger.LogInformation("Generated code ({Len} chars): {Code}", code.Length, 
+                code.Length > 100 ? code[..100] + "..." : code);
+
+            // Inject the generated code
+            _overlayWindow.Hide();
+            await _textInjector.InjectTextAsync(code, cts?.Token ?? CancellationToken.None);
+            _logger.LogInformation("Injected code: {Len} chars", code.Length);
+        }
+        catch (OperationCanceledException)
+        {
+            _overlayWindow.Hide();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Code dictation failed: {Msg}", ex.Message);
+            _overlayWindow.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Code dictation error: {Msg}", ex.Message);
+            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+        }
+        finally
+        {
+            _isProcessing = false;
+            _isCodeDictationMode = false;
+            _audioRecorder.DeleteTempFile(audioFilePath);
+            if (cts == _currentOperationCts) _currentOperationCts = null;
+            cts?.Dispose();
+        }
     }
 }

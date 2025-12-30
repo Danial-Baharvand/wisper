@@ -88,6 +88,28 @@ public class AppSettings
     /// The AI service to query when no text is selected (ChatGPT, Gemini, Perplexity).
     /// </summary>
     public string CommandModeSearchEngine { get; set; } = "ChatGPT";
+
+    // ===== Code Dictation Mode Settings =====
+    
+    /// <summary>
+    /// Whether code dictation mode is enabled.
+    /// </summary>
+    public bool CodeDictationEnabled { get; set; } = true;
+
+    /// <summary>
+    /// The modifier keys for code dictation hotkey (default: Ctrl+Shift).
+    /// </summary>
+    public HotkeyModifiers CodeDictationHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
+
+    /// <summary>
+    /// Selected model for code dictation (3B+ models only).
+    /// </summary>
+    public string CodeDictationModelId { get; set; } = "qwen2.5-3b";
+
+    /// <summary>
+    /// Programming language for code dictation output.
+    /// </summary>
+    public string CodeDictationLanguage { get; set; } = "python";
 }
 
 /// <summary>

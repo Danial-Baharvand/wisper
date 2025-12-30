@@ -7,23 +7,27 @@ namespace WisperFlow.Services;
 /// <summary>
 /// Manages global hotkey registration and low-level keyboard hooks for press/release detection.
 /// Uses polling with GetAsyncKeyState for reliable modifier detection.
+/// Supports three modes: Regular Dictation, Command Mode, and Code Dictation.
 /// </summary>
 public class HotkeyManager : IDisposable
 {
     private readonly ILogger<HotkeyManager> _logger;
-    private HotkeyModifiers _currentModifiers;
-    private HotkeyModifiers _commandModifiers;
+    private HotkeyModifiers _currentModifiers;       // Regular dictation (default: Ctrl+Win)
+    private HotkeyModifiers _commandModifiers;       // Command mode (default: Ctrl+Win+Alt)
+    private HotkeyModifiers _codeDictationModifiers; // Code dictation (default: Ctrl+Shift)
     private bool _disposed;
     private bool _commandModeEnabled = true;
+    private bool _codeDictationEnabled = true;
     
     // Polling-based detection
     private System.Threading.Timer? _pollTimer;
     private bool _isRecording;
-    private bool _isCommandMode;
+    private RecordingMode _currentRecordingMode = RecordingMode.None;
     private DateTime _modifiersFirstDetected;
     private DateTime _releaseFirstDetected;  // Track when release started
     private const int PollIntervalMs = 15;       // Fast polling
-    private const int CommandHoldThresholdMs = 0;  // Command mode is instant (most specific)
+    private const int CommandHoldThresholdMs = 0;  // Command mode is instant (most specific - 3 keys)
+    private const int CodeDictationHoldThresholdMs = 30; // Code dictation waits slightly (2 keys but specific)
     private const int RegularHoldThresholdMs = 60; // Regular mode waits a bit (in case user is pressing more keys)
     private const int ReleaseThresholdMs = 80;   // Time keys must be released before stopping
 
@@ -36,11 +40,15 @@ public class HotkeyManager : IDisposable
     private const int VK_RMENU = 0xA5;  // Right Alt
     private const int VK_LSHIFT = 0xA0;
     private const int VK_RSHIFT = 0xA1;
+    
+    private enum RecordingMode { None, Regular, Command, CodeDictation }
 
     public event EventHandler? RecordStart;
     public event EventHandler? RecordStop;
     public event EventHandler? CommandRecordStart;
     public event EventHandler? CommandRecordStop;
+    public event EventHandler? CodeDictationRecordStart;
+    public event EventHandler? CodeDictationRecordStop;
 
     public HotkeyManager(ILogger<HotkeyManager> logger)
     {
@@ -63,6 +71,13 @@ public class HotkeyManager : IDisposable
         _commandModifiers = modifiers;
         _commandModeEnabled = enabled;
         _logger.LogInformation("Command hotkey registered: Modifiers={Modifiers}, Enabled={Enabled}", modifiers, enabled);
+    }
+
+    public void RegisterCodeDictationHotkey(HotkeyModifiers modifiers, bool enabled)
+    {
+        _codeDictationModifiers = modifiers;
+        _codeDictationEnabled = enabled;
+        _logger.LogInformation("Code dictation hotkey registered: Modifiers={Modifiers}, Enabled={Enabled}", modifiers, enabled);
     }
 
     public void UnregisterHotkey()
@@ -91,26 +106,22 @@ public class HotkeyManager : IDisposable
             if (altPressed) currentModifiers |= HotkeyModifiers.Alt;
             if (shiftPressed) currentModifiers |= HotkeyModifiers.Shift;
 
-            // Check for matches
+            // Check for matches - priority: Command (3 keys) > Code Dictation (2 keys) > Regular (2 keys)
             bool commandMatch = _commandModeEnabled && MatchesModifiers(currentModifiers, _commandModifiers);
+            bool codeDictationMatch = _codeDictationEnabled && MatchesModifiers(currentModifiers, _codeDictationModifiers);
             bool regularMatch = MatchesModifiers(currentModifiers, _currentModifiers);
 
             // Handle state transitions
             if (_isRecording)
             {
                 // Currently recording - check if should stop
-                // For command mode, be more lenient - just check if ANY of the required keys are still held
-                bool shouldContinue;
-                if (_isCommandMode)
+                bool shouldContinue = _currentRecordingMode switch
                 {
-                    // For command mode with multiple keys, use lenient matching
-                    // Continue as long as at least 2 of the 3 required keys are still pressed
-                    shouldContinue = HasMostModifiers(currentModifiers, _commandModifiers);
-                }
-                else
-                {
-                    shouldContinue = regularMatch;
-                }
+                    RecordingMode.Command => HasMostModifiers(currentModifiers, _commandModifiers),
+                    RecordingMode.CodeDictation => HasMostModifiers(currentModifiers, _codeDictationModifiers),
+                    RecordingMode.Regular => regularMatch,
+                    _ => false
+                };
                 
                 if (shouldContinue)
                 {
@@ -127,38 +138,46 @@ public class HotkeyManager : IDisposable
                     else if ((DateTime.UtcNow - _releaseFirstDetected).TotalMilliseconds >= ReleaseThresholdMs)
                     {
                         // Sustained release - stop recording
-                        var wasCommandMode = _isCommandMode;
+                        var previousMode = _currentRecordingMode;
                         _isRecording = false;
-                        _isCommandMode = false;
+                        _currentRecordingMode = RecordingMode.None;
                         _releaseFirstDetected = DateTime.MinValue;
 
-                        if (wasCommandMode)
+                        switch (previousMode)
                         {
-                            _logger.LogDebug("Command hotkey released - stopping command recording");
-                            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                            {
-                                CommandRecordStop?.Invoke(this, EventArgs.Empty);
-                            });
-                        }
-                        else
-                        {
-                            _logger.LogDebug("Hotkey released - stopping recording");
-                            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                            {
-                                RecordStop?.Invoke(this, EventArgs.Empty);
-                            });
+                            case RecordingMode.Command:
+                                _logger.LogDebug("Command hotkey released - stopping command recording");
+                                System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                                {
+                                    CommandRecordStop?.Invoke(this, EventArgs.Empty);
+                                });
+                                break;
+                            case RecordingMode.CodeDictation:
+                                _logger.LogDebug("Code dictation hotkey released - stopping code recording");
+                                System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                                {
+                                    CodeDictationRecordStop?.Invoke(this, EventArgs.Empty);
+                                });
+                                break;
+                            case RecordingMode.Regular:
+                                _logger.LogDebug("Hotkey released - stopping recording");
+                                System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                                {
+                                    RecordStop?.Invoke(this, EventArgs.Empty);
+                                });
+                                break;
                         }
                     }
                 }
             }
             else
             {
-                // Not recording - check if should start
+                // Not recording - check if should start (priority order)
                 if (commandMatch)
                 {
-                    // Command mode - start instantly (it's the most specific, no conflicts possible)
+                    // Command mode - start instantly (most specific: 3 keys)
                     _isRecording = true;
-                    _isCommandMode = true;
+                    _currentRecordingMode = RecordingMode.Command;
                     _releaseFirstDetected = DateTime.MinValue;
                     _modifiersFirstDetected = DateTime.MinValue;
                     _logger.LogDebug("Command hotkey pressed - starting command recording");
@@ -166,6 +185,25 @@ public class HotkeyManager : IDisposable
                     {
                         CommandRecordStart?.Invoke(this, EventArgs.Empty);
                     });
+                }
+                else if (codeDictationMatch)
+                {
+                    // Code dictation mode - wait slightly to ensure not adding more keys
+                    if (_modifiersFirstDetected == DateTime.MinValue)
+                    {
+                        _modifiersFirstDetected = DateTime.UtcNow;
+                    }
+                    else if ((DateTime.UtcNow - _modifiersFirstDetected).TotalMilliseconds >= CodeDictationHoldThresholdMs)
+                    {
+                        _isRecording = true;
+                        _currentRecordingMode = RecordingMode.CodeDictation;
+                        _releaseFirstDetected = DateTime.MinValue;
+                        _logger.LogDebug("Code dictation hotkey pressed - starting code recording");
+                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                        {
+                            CodeDictationRecordStart?.Invoke(this, EventArgs.Empty);
+                        });
+                    }
                 }
                 else if (regularMatch)
                 {
@@ -177,7 +215,7 @@ public class HotkeyManager : IDisposable
                     else if ((DateTime.UtcNow - _modifiersFirstDetected).TotalMilliseconds >= RegularHoldThresholdMs)
                     {
                         _isRecording = true;
-                        _isCommandMode = false;
+                        _currentRecordingMode = RecordingMode.Regular;
                         _releaseFirstDetected = DateTime.MinValue;
                         _logger.LogDebug("Hotkey pressed - starting recording");
                         System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>

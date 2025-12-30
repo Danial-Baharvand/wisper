@@ -1,12 +1,13 @@
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.CodeDictation;
 using WisperFlow.Services.Polish;
 using WisperFlow.Services.Transcription;
 
 namespace WisperFlow.Services;
 
 /// <summary>
-/// Factory for creating transcription and polish services based on selected models.
+/// Factory for creating transcription, polish, and code dictation services based on selected models.
 /// </summary>
 public class ServiceFactory
 {
@@ -59,6 +60,26 @@ public class ServiceFactory
             _loggerFactory.CreateLogger<LocalLLMPolishService>(),
             _modelManager,
             model);
+    }
+
+    public ICodeDictationService CreateCodeDictationService(string modelId)
+    {
+        var model = ModelCatalog.GetById(modelId);
+        
+        if (model == null || model.Source == ModelSource.OpenAI)
+        {
+            // Use OpenAI API for code dictation
+            var apiModel = model ?? ModelCatalog.OpenAIGpt4oMini;
+            return new OpenAICodeDictationService(
+                apiModel,
+                _loggerFactory.CreateLogger<OpenAICodeDictationService>());
+        }
+
+        // Use local LLM for code dictation
+        return new LocalCodeDictationService(
+            _modelManager,
+            model,
+            _loggerFactory.CreateLogger<LocalCodeDictationService>());
     }
 }
 

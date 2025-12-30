@@ -76,15 +76,28 @@
                     <StackPanel>
                         <CheckBox x:Name="CommandModeCheckBox" 
                                   Style="{StaticResource ModernToggle}"
-                                  Content="Enable command mode (Ctrl+Win+Alt)"
+                                  Content="Enable command mode"
                                   Margin="0,0,0,12"/>
                         
+                        <TextBlock Text="Hotkey:" 
+                                   Foreground="{StaticResource TextSecondaryBrush}" 
+                                   FontSize="12" Margin="0,0,0,8"/>
+                        <TextBox x:Name="CommandHotkeyTextBox" 
+                                 Style="{StaticResource ModernTextBox}"
+                                 Text="Ctrl + Win + Alt" 
+                                 IsReadOnly="True"
+                                 Cursor="Hand"
+                                 Width="200" HorizontalAlignment="Left"
+                                 PreviewKeyDown="CommandHotkeyTextBox_PreviewKeyDown"
+                                 PreviewKeyUp="CommandHotkeyTextBox_PreviewKeyUp"
+                                 GotFocus="CommandHotkeyTextBox_GotFocus"
+                                 LostFocus="CommandHotkeyTextBox_LostFocus"
+                                 Margin="0,0,0,12"/>
+                        
                         <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" 
-                                Padding="12" Margin="60,0,0,12">
+                                Padding="12" Margin="0,0,0,12">
                             <TextBlock TextWrapping="Wrap" FontSize="11">
-                                <Run Foreground="{StaticResource TextSecondaryBrush}">Hold </Run>
-                                <Run Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold">Ctrl+Win+Alt</Run>
-                                <Run Foreground="{StaticResource TextSecondaryBrush}"> and speak a command.</Run>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">Hold the hotkey and speak a command.</Run>
                                 <LineBreak/>
                                 <Run Foreground="{StaticResource TextSecondaryBrush}">• With text selected: transforms the text (e.g., "make this formal")</Run>
                                 <LineBreak/>
@@ -96,6 +109,66 @@
                                    Foreground="{StaticResource TextSecondaryBrush}" 
                                    FontSize="12" Margin="0,4,0,8"/>
                         <ComboBox x:Name="SearchEngineComboBox" Style="{StaticResource ModernComboBox}" Width="200" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Code Dictation Section -->
+                <TextBlock Text="CODE DICTATION" Style="{StaticResource SettingLabel}"/>
+                <Border Style="{StaticResource CardBorder}">
+                    <StackPanel>
+                        <CheckBox x:Name="CodeDictationCheckBox" 
+                                  Style="{StaticResource ModernToggle}"
+                                  Content="Enable code dictation mode"
+                                  Margin="0,0,0,12"/>
+                        
+                        <TextBlock Text="Hotkey:" 
+                                   Foreground="{StaticResource TextSecondaryBrush}" 
+                                   FontSize="12" Margin="0,0,0,8"/>
+                        <TextBox x:Name="CodeDictationHotkeyTextBox" 
+                                 Style="{StaticResource ModernTextBox}"
+                                 Text="Ctrl + Shift" 
+                                 IsReadOnly="True"
+                                 Cursor="Hand"
+                                 Width="200" HorizontalAlignment="Left"
+                                 PreviewKeyDown="CodeDictationHotkeyTextBox_PreviewKeyDown"
+                                 PreviewKeyUp="CodeDictationHotkeyTextBox_PreviewKeyUp"
+                                 GotFocus="CodeDictationHotkeyTextBox_GotFocus"
+                                 LostFocus="CodeDictationHotkeyTextBox_LostFocus"
+                                 Margin="0,0,0,12"/>
+                        
+                        <TextBlock Text="Code Model (3B+ recommended):" 
+                                   Foreground="{StaticResource TextSecondaryBrush}" 
+                                   FontSize="12" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="CodeDictationModelComboBox" 
+                                  Style="{StaticResource ModernComboBox}"
+                                  SelectionChanged="CodeDictationModel_Changed"
+                                  Margin="0,0,0,8"/>
+                        <TextBlock x:Name="CodeDictationModelDesc"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                        
+                        <TextBlock Text="Language:" 
+                                   Foreground="{StaticResource TextSecondaryBrush}" 
+                                   FontSize="12" Margin="0,0,0,8"/>
+                        <ComboBox x:Name="CodeDictationLanguageComboBox" 
+                                  Style="{StaticResource ModernComboBox}"
+                                  Width="200" HorizontalAlignment="Left"
+                                  Margin="0,0,0,12"/>
+                        
+                        <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="12">
+                            <TextBlock TextWrapping="Wrap" FontSize="11">
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">Hold the hotkey and speak code naturally:</Run>
+                                <LineBreak/>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">• "for i in range 10" → </Run>
+                                <Run Foreground="{StaticResource AccentBrush}" FontFamily="Consolas">for i in range(10):</Run>
+                                <LineBreak/>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">• "my variable equals 5" → </Run>
+                                <Run Foreground="{StaticResource AccentBrush}" FontFamily="Consolas">my_variable = 5</Run>
+                                <LineBreak/>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">• "define function add that takes a and b" → </Run>
+                                <Run Foreground="{StaticResource AccentBrush}" FontFamily="Consolas">def add(a, b):</Run>
+                            </TextBlock>
+                        </Border>
                     </StackPanel>
                 </Border>
                 
