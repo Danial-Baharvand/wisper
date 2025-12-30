@@ -123,6 +123,7 @@ public class OpenAITranscriptionClient
                     totalStopwatch.Stop();
                     _logger.LogInformation("Transcription complete: {Length} chars, total time: {Time}ms", 
                         text.Length, totalStopwatch.ElapsedMilliseconds);
+                    _logger.LogInformation("Transcript: {Transcript}", text);
                     
                     // Cleanup temp MP3
                     CleanupTempFile(tempMp3Path);

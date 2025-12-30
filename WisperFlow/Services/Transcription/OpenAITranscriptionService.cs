@@ -65,8 +65,10 @@ public class OpenAITranscriptionService : ITranscriptionService
                 {
                     var json = await response.Content.ReadAsStringAsync(cancellationToken);
                     var result = JsonSerializer.Deserialize<TranscriptionResponse>(json, JsonOptions);
-                    _logger.LogInformation("Transcription successful: {Len} chars", result?.Text?.Length ?? 0);
-                    return result?.Text ?? "";
+                    var transcriptText = result?.Text ?? "";
+                    _logger.LogInformation("Transcription successful: {Len} chars", transcriptText.Length);
+                    _logger.LogInformation("Transcript: {Transcript}", transcriptText);
+                    return transcriptText;
                 }
 
                 var statusCode = (int)response.StatusCode;

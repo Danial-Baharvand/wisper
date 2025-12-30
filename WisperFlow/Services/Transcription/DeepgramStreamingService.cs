@@ -329,6 +329,7 @@ public class DeepgramStreamingService : ITranscriptionService
         stopwatch.Stop();
         _logger.LogInformation("Streaming complete in {Ms}ms, transcript: {Len} chars", 
             stopwatch.ElapsedMilliseconds, finalTranscript.Length);
+        _logger.LogInformation("Transcript: {Transcript}", finalTranscript);
         
         return finalTranscript;
     }

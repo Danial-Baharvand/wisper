@@ -87,6 +87,7 @@ public class LocalWhisperService : ITranscriptionService
             var elapsed = DateTime.UtcNow - startTime;
             _logger.LogInformation("Local transcription complete: {Len} chars in {Time:F1}s", 
                 text.Length, elapsed.TotalSeconds);
+            _logger.LogInformation("Transcript: {Transcript}", text);
             
             return text;
         }

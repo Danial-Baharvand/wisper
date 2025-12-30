@@ -166,6 +166,7 @@ public class DeepgramTranscriptionService : ITranscriptionService
 
             _logger.LogInformation("Deepgram transcription complete in {Time:F2}s: {Len} chars", 
                 elapsed.TotalSeconds, transcript.Length);
+            _logger.LogInformation("Transcript: {Transcript}", transcript);
 
             return transcript;
         }

@@ -222,6 +222,7 @@ public class FasterWhisperService : ITranscriptionService
 
         _logger.LogInformation("faster-whisper transcription complete: {Len} chars in {Time:F2}s", 
             text.Length, duration);
+        _logger.LogInformation("Transcript: {Transcript}", text);
 
         return text;
     }

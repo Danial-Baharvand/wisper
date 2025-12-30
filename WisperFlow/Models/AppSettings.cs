@@ -137,7 +137,7 @@ public class AppSettings
     /// <summary>
     /// Enable smart formatting (numbers, dates, currency).
     /// </summary>
-    public bool DeepgramSmartFormat { get; set; } = true;
+    public bool DeepgramSmartFormat { get; set; } = false;
 
     /// <summary>
     /// Enable automatic punctuation.
@@ -177,12 +177,12 @@ public class AppSettings
     /// <summary>
     /// Enable dictation mode for better entity recognition.
     /// </summary>
-    public bool DeepgramDictation { get; set; } = true;
+    public bool DeepgramDictation { get; set; } = false;
 
     /// <summary>
     /// Convert written numbers to numerals ("five" → "5").
     /// </summary>
-    public bool DeepgramNumerals { get; set; } = true;
+    public bool DeepgramNumerals { get; set; } = false;
 
     /// <summary>
     /// Endpointing in milliseconds (how long to wait before finalizing).
