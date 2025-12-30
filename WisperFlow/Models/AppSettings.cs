@@ -157,6 +157,32 @@ public class AppSettings
     /// Profanity filter mode: "false", "true" (mask), or "strict" (remove).
     /// </summary>
     public string DeepgramProfanityFilter { get; set; } = "false";
+
+    /// <summary>
+    /// Enable dictation mode for better entity recognition.
+    /// </summary>
+    public bool DeepgramDictation { get; set; } = true;
+
+    /// <summary>
+    /// Convert written numbers to numerals ("five" → "5").
+    /// </summary>
+    public bool DeepgramNumerals { get; set; } = true;
+
+    /// <summary>
+    /// Endpointing in milliseconds (how long to wait before finalizing).
+    /// Lower = faster streaming. 0 = default, 100-500 recommended for speed.
+    /// </summary>
+    public int DeepgramEndpointing { get; set; } = 300;
+
+    /// <summary>
+    /// Redact sensitive information (pci, ssn, numbers, etc). Empty = disabled.
+    /// </summary>
+    public string DeepgramRedact { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Opt out of Deepgram Model Improvement Program (privacy).
+    /// </summary>
+    public bool DeepgramMipOptOut { get; set; } = false;
 }
 
 /// <summary>

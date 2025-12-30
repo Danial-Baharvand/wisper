@@ -23,6 +23,7 @@ public class DictationOrchestrator
     private ITranscriptionService? _transcriptionService;
     private IPolishService? _polishService;
     private ICodeDictationService? _codeDictationService;
+    private DeepgramStreamingService? _streamingService;  // For real-time streaming
     private CancellationTokenSource? _currentOperationCts;
     private bool _isEnabled = true;
     private bool _isProcessing;
@@ -32,6 +33,7 @@ public class DictationOrchestrator
     private string? _commandModeSelectedText;  // Selected text captured at command stop
     private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
+    private bool _isStreamingActive;  // Track if Deepgram streaming is active
 
     public DictationOrchestrator(
         HotkeyManager hotkeyManager,
@@ -152,7 +154,7 @@ public class DictationOrchestrator
         _hotkeyManager.RegisterHotkey(modifiers, key);
     }
 
-    private void OnRecordStart(object? sender, EventArgs e)
+    private async void OnRecordStart(object? sender, EventArgs e)
     {
         if (!_isEnabled || _isProcessing) return;
         if (_servicesInitializing)
@@ -164,14 +166,67 @@ public class DictationOrchestrator
         try
         {
             _currentOperationCts = new CancellationTokenSource();
+            var settings = _settingsManager.CurrentSettings;
+            
+            // Check if we should use Deepgram streaming
+            var useStreaming = settings.DeepgramStreaming && 
+                               settings.TranscriptionModelId.StartsWith("deepgram-") &&
+                               !string.IsNullOrEmpty(CredentialManager.GetDeepgramApiKey());
+            
+            if (useStreaming)
+            {
+                // Start streaming transcription alongside recording
+                var model = ModelCatalog.GetById(settings.TranscriptionModelId);
+                if (model != null)
+                {
+                    _streamingService = new DeepgramStreamingService(
+                        _logger, model, settings);
+                    
+                    try
+                    {
+                        await _streamingService.StartStreamingAsync(
+                            settings.Language == "auto" ? "en" : settings.Language,
+                            _currentOperationCts.Token);
+                        
+                        // Subscribe to audio chunks
+                        _audioRecorder.AudioDataAvailable += OnAudioDataForStreaming;
+                        _isStreamingActive = true;
+                        _logger.LogInformation("Deepgram streaming started");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to start streaming, falling back to batch");
+                        _streamingService?.Dispose();
+                        _streamingService = null;
+                        _isStreamingActive = false;
+                    }
+                }
+            }
+            
             _audioRecorder.StartRecording();
             _overlayWindow.ShowRecording();
-            _logger.LogInformation("Recording started");
+            _logger.LogInformation("Recording started (streaming: {Streaming})", _isStreamingActive);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start recording");
             _overlayWindow.ShowError("Failed to start recording");
+            _isStreamingActive = false;
+        }
+    }
+    
+    private async void OnAudioDataForStreaming(object? sender, byte[] audioData)
+    {
+        if (_streamingService != null && _isStreamingActive)
+        {
+            try
+            {
+                await _streamingService.SendAudioChunkAsync(audioData, _currentOperationCts?.Token ?? CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send audio chunk to streaming service");
+            }
         }
     }
 
@@ -179,14 +234,97 @@ public class DictationOrchestrator
     {
         if (!_audioRecorder.IsRecording) return;
 
+        // Unsubscribe from audio events
+        _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
+        
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
             _overlayWindow.Hide();
+            CleanupStreaming();
             return;
         }
 
-        await ProcessRecordingAsync(audioFilePath);
+        // If streaming was active, get transcript from streaming service
+        if (_isStreamingActive && _streamingService != null)
+        {
+            await ProcessStreamingRecordingAsync(audioFilePath);
+        }
+        else
+        {
+            await ProcessRecordingAsync(audioFilePath);
+        }
+    }
+    
+    private void CleanupStreaming()
+    {
+        _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
+        _streamingService?.Dispose();
+        _streamingService = null;
+        _isStreamingActive = false;
+    }
+    
+    private async Task ProcessStreamingRecordingAsync(string audioFilePath)
+    {
+        _isProcessing = true;
+        var settings = _settingsManager.CurrentSettings;
+        var cts = _currentOperationCts;
+
+        try
+        {
+            _overlayWindow.ShowTranscribing("Finalizing...");
+            
+            // Get transcript from streaming service
+            var transcript = await _streamingService!.StopStreamingAsync(cts?.Token ?? CancellationToken.None);
+            
+            if (string.IsNullOrWhiteSpace(transcript))
+            {
+                _logger.LogWarning("Streaming returned empty transcript, falling back to batch");
+                // Fall back to batch transcription
+                CleanupStreaming();
+                await ProcessRecordingAsync(audioFilePath);
+                return;
+            }
+
+            _logger.LogInformation("Streaming transcript: {Len} chars", transcript.Length);
+
+            var finalText = transcript;
+            if (settings.PolishOutput && _polishService?.ModelId != "polish-disabled")
+            {
+                _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
+                
+                if (!_polishService.IsReady)
+                {
+                    _overlayWindow.ShowPolishing("Loading model...");
+                    await _polishService.InitializeAsync(cts?.Token ?? CancellationToken.None);
+                }
+
+                _overlayWindow.ShowPolishing();
+                finalText = await _polishService.PolishAsync(transcript, settings.NotesMode, cts?.Token ?? CancellationToken.None);
+                _logger.LogDebug("Polished: {Len} chars", finalText.Length);
+            }
+
+            _overlayWindow.Hide();
+            await _textInjector.InjectTextAsync(finalText, cts?.Token ?? CancellationToken.None);
+            _logger.LogInformation("Injected {Len} chars (via streaming)", finalText.Length);
+        }
+        catch (OperationCanceledException)
+        {
+            _overlayWindow.Hide();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Streaming transcription error: {Msg}", ex.Message);
+            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+        }
+        finally
+        {
+            _isProcessing = false;
+            CleanupStreaming();
+            _audioRecorder.DeleteTempFile(audioFilePath);
+            if (cts == _currentOperationCts) _currentOperationCts = null;
+            cts?.Dispose();
+        }
     }
 
     private void OnMaxDurationReached(object? sender, EventArgs e) => _overlayWindow.ShowError("Max duration reached");

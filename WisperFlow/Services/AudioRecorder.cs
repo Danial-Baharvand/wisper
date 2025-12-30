@@ -24,6 +24,10 @@ public class AudioRecorder : IDisposable
     public event EventHandler<string>? RecordingStopped;
     public event EventHandler<TimeSpan>? RecordingProgress;
     public event EventHandler? MaxDurationReached;
+    /// <summary>
+    /// Event fired when audio data is available during recording (for streaming transcription).
+    /// </summary>
+    public event EventHandler<byte[]>? AudioDataAvailable;
 
     public bool IsRecording => _isRecording;
     public TimeSpan RecordingDuration => _isRecording ? DateTime.Now - _recordingStartTime : TimeSpan.Zero;
@@ -149,6 +153,14 @@ public class AudioRecorder : IDisposable
         {
             _waveWriter.Write(e.Buffer, 0, e.BytesRecorded);
             _totalBytesRecorded += e.BytesRecorded; // DEBUG
+            
+            // Fire event for streaming transcription
+            if (AudioDataAvailable != null)
+            {
+                var audioChunk = new byte[e.BytesRecorded];
+                Array.Copy(e.Buffer, audioChunk, e.BytesRecorded);
+                AudioDataAvailable.Invoke(this, audioChunk);
+            }
             
             var duration = DateTime.Now - _recordingStartTime;
             if (duration.TotalMilliseconds % 500 < 50)

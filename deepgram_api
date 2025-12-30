@@ -1,0 +1,274 @@
+Handshake
+WSS
+
+wss://api.deepgram.com
+/v1/listen
+
+Headers
+Authorization
+string
+Required
+Use your API key for authentication, or alternatively generate a temporary token and pass it via the token query parameter.
+
+Example: token %DEEPGRAM_API_KEY% or bearer %DEEPGRAM_TOKEN%
+
+Query parameters
+callback
+any
+Optional
+URL to which we'll make the callback request
+callback_method
+enum
+Optional
+Defaults to POST
+HTTP method by which the callback request will be made
+Allowed values:
+POST
+GET
+PUT
+DELETE
+channels
+any
+Optional
+The number of channels in the submitted audio
+diarize
+enum
+Optional
+Defaults to false
+Defaults to false. Recognize speaker changes. Each word in the transcript will be assigned a speaker number starting at 0
+
+Allowed values:
+true
+false
+dictation
+enum
+Optional
+Defaults to false
+Identify and extract key entities from content in submitted audio
+Allowed values:
+true
+false
+encoding
+enum
+Optional
+Specify the expected encoding of your submitted audio
+
+Show 11 enum values
+endpointing
+any
+Optional
+Indicates how long Deepgram will wait to detect whether a speaker has finished speaking or pauses for a significant period of time. When set to a value, the streaming endpoint immediately finalizes the transcription for the processed time range and returns the transcript with a speech_final parameter set to true. Can also be set to false to disable endpointing
+
+extra
+any
+Optional
+Arbitrary key-value pairs that are attached to the API response for usage in downstream processing
+
+interim_results
+enum
+Optional
+Defaults to false
+Specifies whether the streaming endpoint should provide ongoing transcription updates as more audio is received. When set to true, the endpoint sends continuous updates, meaning transcription results may evolve over time
+Allowed values:
+true
+false
+keyterm
+any
+Optional
+Key term prompting can boost specialized terminology and brands. Only compatible with Nova-3
+
+keywords
+any
+Optional
+Keywords can boost or suppress specialized terminology and brands
+language
+any
+Optional
+The BCP-47 language tag that hints at the primary spoken language. Depending on the Model you choose only certain languages are available
+
+mip_opt_out
+any
+Optional
+Opts out requests from the Deepgram Model Improvement Program. Refer to our Docs for pricing impacts before setting this to true. https://dpgr.am/deepgram-mip
+
+model
+enum
+Required
+AI model to use for the transcription
+
+Show 30 enum values
+multichannel
+enum
+Optional
+Defaults to false
+Transcribe each audio channel independently
+Allowed values:
+true
+false
+numerals
+enum
+Optional
+Defaults to false
+Convert numbers from written format to numerical format
+Allowed values:
+true
+false
+profanity_filter
+enum
+Optional
+Defaults to false
+Profanity Filter looks for recognized profanity and converts it to the nearest recognized non-profane word or removes it from the transcript completely
+
+Allowed values:
+true
+false
+punctuate
+enum
+Optional
+Defaults to false
+Add punctuation and capitalization to the transcript
+Allowed values:
+true
+false
+redact
+enum
+Optional
+Defaults to false
+Redaction removes sensitive information from your transcripts
+
+Show 6 enum values
+replace
+any
+Optional
+Search for terms or phrases in submitted audio and replaces them
+sample_rate
+any
+Optional
+Sample rate of submitted audio. Required (and only read) when a value is provided for encoding
+
+search
+any
+Optional
+Search for terms or phrases in submitted audio
+smart_format
+enum
+Optional
+Defaults to false
+Apply formatting to transcript output. When set to true, additional formatting will be applied to transcripts to improve readability
+Allowed values:
+true
+false
+tag
+any
+Optional
+Label your requests for the purpose of identification during usage reporting
+utterance_end_ms
+any
+Optional
+Indicates how long Deepgram will wait to send an UtteranceEnd message after a word has been transcribed. Use with interim_results
+
+vad_events
+enum
+Optional
+Defaults to false
+Indicates that speech has started. You'll begin receiving Speech Started messages upon speech starting
+Allowed values:
+true
+false
+version
+any
+Optional
+Version of an AI model to use
+Send
+ListenV1Media
+string
+Required
+format: "binary"
+Send audio or video data to be transcribed
+OR
+ListenV1Finalize
+object
+Required
+Send a Finalize message to flush the WebSocket stream
+
+Hide 1 properties
+type
+enum
+Required
+Message type identifier
+Allowed values:
+Finalize
+CloseStream
+KeepAlive
+OR
+ListenV1CloseStream
+object
+Required
+Send a CloseStream message to close the WebSocket stream
+
+Hide 1 properties
+type
+enum
+Required
+Message type identifier
+Allowed values:
+Finalize
+CloseStream
+KeepAlive
+OR
+ListenV1KeepAlive
+object
+Required
+Send a KeepAlive message to keep the WebSocket stream alive
+
+Hide 1 properties
+type
+enum
+Required
+Message type identifier
+Allowed values:
+Finalize
+CloseStream
+KeepAlive
+Receive
+ListenV1Results
+object
+Required
+Receive transcription results
+
+Show 9 properties
+OR
+ListenV1Metadata
+object
+Required
+Receive metadata about the transcription
+
+Show 7 properties
+OR
+ListenV1UtteranceEnd
+object
+Required
+Receive an utterance end event
+
+Show 3 properties
+OR
+ListenV1SpeechStarted
+object
+Required
+Receive a speech started event
+
+Hide 3 properties
+type
+enum
+Required
+Message type identifier
+Allowed values:
+SpeechStarted
+channel
+list of doubles
+Required
+The channel
+timestamp
+double
+Required
+The timestamp

@@ -114,20 +114,26 @@ public partial class SettingsWindow : Window
         DeepgramParagraphsCheckBox.IsChecked = _settings.DeepgramParagraphs;
         DeepgramFillerWordsCheckBox.IsChecked = _settings.DeepgramFillerWords;
         DeepgramKeywordsTextBox.Text = _settings.DeepgramKeywords;
+        
+        // New dictation-optimized settings
+        DeepgramDictationCheckBox.IsChecked = _settings.DeepgramDictation;
+        DeepgramNumeralsCheckBox.IsChecked = _settings.DeepgramNumerals;
+        DeepgramMipOptOutCheckBox.IsChecked = _settings.DeepgramMipOptOut;
+        DeepgramRedactTextBox.Text = _settings.DeepgramRedact;
     }
 
     private void PopulateDeepgramOptions()
     {
+        // Profanity filter options
         DeepgramProfanityComboBox.Items.Clear();
-        
-        var options = new[] 
+        var profanityOptions = new[] 
         { 
             ("false", "Off (no filter)"),
             ("true", "Mask (*** profanity)"),
             ("strict", "Remove (delete profanity)")
         };
         
-        foreach (var (value, display) in options)
+        foreach (var (value, display) in profanityOptions)
         {
             var item = new ComboBoxItem { Content = display, Tag = value };
             DeepgramProfanityComboBox.Items.Add(item);
@@ -138,6 +144,30 @@ public partial class SettingsWindow : Window
         
         if (DeepgramProfanityComboBox.SelectedItem == null)
             DeepgramProfanityComboBox.SelectedIndex = 0;
+        
+        // Endpointing options (for streaming speed)
+        DeepgramEndpointingComboBox.Items.Clear();
+        var endpointingOptions = new[]
+        {
+            (0, "Default (auto)"),
+            (100, "100ms (very fast)"),
+            (200, "200ms (fast)"),
+            (300, "300ms (balanced) ✓"),
+            (500, "500ms (more accurate)"),
+            (1000, "1000ms (most accurate)")
+        };
+        
+        foreach (var (value, display) in endpointingOptions)
+        {
+            var item = new ComboBoxItem { Content = display, Tag = value };
+            DeepgramEndpointingComboBox.Items.Add(item);
+            
+            if (_settings.DeepgramEndpointing == value)
+                DeepgramEndpointingComboBox.SelectedItem = item;
+        }
+        
+        if (DeepgramEndpointingComboBox.SelectedItem == null)
+            DeepgramEndpointingComboBox.SelectedIndex = 3; // Default to 300ms
     }
 
     private void PopulateSearchEngines()
@@ -715,6 +745,14 @@ public partial class SettingsWindow : Window
         _settings.DeepgramKeywords = DeepgramKeywordsTextBox.Text?.Trim() ?? "";
         if (DeepgramProfanityComboBox.SelectedItem is ComboBoxItem profanityItem)
             _settings.DeepgramProfanityFilter = profanityItem.Tag?.ToString() ?? "false";
+        
+        // New dictation-optimized settings
+        _settings.DeepgramDictation = DeepgramDictationCheckBox.IsChecked ?? true;
+        _settings.DeepgramNumerals = DeepgramNumeralsCheckBox.IsChecked ?? true;
+        _settings.DeepgramMipOptOut = DeepgramMipOptOutCheckBox.IsChecked ?? false;
+        _settings.DeepgramRedact = DeepgramRedactTextBox.Text?.Trim() ?? "";
+        if (DeepgramEndpointingComboBox.SelectedItem is ComboBoxItem endpointingItem && endpointingItem.Tag is int endpointingValue)
+            _settings.DeepgramEndpointing = endpointingValue;
 
         // Save settings
         _settingsManager.SaveSettings(_settings);

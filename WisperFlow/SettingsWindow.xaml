@@ -1,4 +1,4 @@
-﻿<Window x:Class="WisperFlow.SettingsWindow"
+<Window x:Class="WisperFlow.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WisperFlow Settings"
@@ -218,12 +218,16 @@
                             <StackPanel>
                                 <TextBlock Text="MODE" Style="{StaticResource SettingLabel}"/>
                                 <CheckBox x:Name="DeepgramStreamingCheckBox" Style="{StaticResource SmallToggle}"
-                                          Content="Enable streaming (real-time partial results)"/>
+                                          Content="Enable real-time streaming (faster for long recordings)"/>
                                 <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" 
                                         Padding="12" Margin="0,0,0,20">
                                     <TextBlock TextWrapping="Wrap" FontSize="11" 
                                                Foreground="{StaticResource TextSecondaryBrush}">
-                                        Streaming shows words as you speak. Batch mode waits until you finish for higher accuracy.
+                                        <Run FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}">Streaming:</Run>
+                                        <Run> Audio is transcribed while recording via WebSocket. Faster for long recordings (30s+).</Run>
+                                        <LineBreak/>
+                                        <Run FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}">Batch:</Run>
+                                        <Run> Complete audio is uploaded after recording. More accurate for short recordings.</Run>
                                     </TextBlock>
                                 </Border>
                                 
@@ -237,6 +241,12 @@
                                 <CheckBox x:Name="DeepgramParagraphsCheckBox" Style="{StaticResource SmallToggle}"
                                           Content="Paragraphs" Margin="0,0,0,20"/>
                                 
+                                <TextBlock Text="DICTATION OPTIMIZATIONS" Style="{StaticResource SettingLabel}"/>
+                                <CheckBox x:Name="DeepgramDictationCheckBox" Style="{StaticResource SmallToggle}"
+                                          Content="Dictation mode (optimized for voice input)"/>
+                                <CheckBox x:Name="DeepgramNumeralsCheckBox" Style="{StaticResource SmallToggle}"
+                                          Content="Convert numbers (five hundred → 500)" Margin="0,0,0,20"/>
+                                
                                 <TextBlock Text="ADVANCED" Style="{StaticResource SettingLabel}"/>
                                 <CheckBox x:Name="DeepgramDiarizeCheckBox" Style="{StaticResource SmallToggle}"
                                           Content="Speaker Diarization (identify speakers)"/>
@@ -246,6 +256,21 @@
                                 <TextBlock Text="Profanity Filter" Style="{StaticResource OptionLabel}" Margin="0,12,0,8"/>
                                 <ComboBox x:Name="DeepgramProfanityComboBox" Style="{StaticResource ModernComboBox}"
                                           Width="200" HorizontalAlignment="Left" Margin="0,0,0,20"/>
+                                
+                                <TextBlock Text="STREAMING SPEED" Style="{StaticResource SettingLabel}"/>
+                                <TextBlock Text="Endpointing (ms) - Lower = faster response, 0 = default" 
+                                           Style="{StaticResource OptionLabel}"/>
+                                <ComboBox x:Name="DeepgramEndpointingComboBox" Style="{StaticResource ModernComboBox}"
+                                          Width="200" HorizontalAlignment="Left" Margin="0,0,0,20"/>
+                                
+                                <TextBlock Text="PRIVACY" Style="{StaticResource SettingLabel}"/>
+                                <CheckBox x:Name="DeepgramMipOptOutCheckBox" Style="{StaticResource SmallToggle}"
+                                          Content="Opt out of Model Improvement Program"/>
+                                <TextBlock Text="Redact sensitive info (comma-separated: pci, ssn, numbers, phone)" 
+                                           Style="{StaticResource OptionLabel}" Margin="0,12,0,8"/>
+                                <TextBox x:Name="DeepgramRedactTextBox" Style="{StaticResource ModernTextBox}"
+                                         Text="" Width="300" HorizontalAlignment="Left"
+                                         ToolTip="Example: pci, ssn, phone" Margin="0,0,0,20"/>
                                 
                                 <TextBlock Text="KEYWORD BOOSTING" Style="{StaticResource SettingLabel}"/>
                                 <TextBlock Text="Boost recognition of specific words (comma-separated)" 

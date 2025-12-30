@@ -97,13 +97,23 @@ public class DeepgramTranscriptionService : ITranscriptionService
                 
                 // Advanced options
                 Diarize = _settings.DeepgramDiarize,
-                FillerWords = _settings.DeepgramFillerWords
+                FillerWords = _settings.DeepgramFillerWords,
+                
+                // Dictation-optimized options
+                Dictation = _settings.DeepgramDictation,
+                Numerals = _settings.DeepgramNumerals
             };
             
             // Profanity filter
             if (_settings.DeepgramProfanityFilter != "false")
             {
                 options.ProfanityFilter = _settings.DeepgramProfanityFilter == "true";
+            }
+            
+            // Redaction
+            if (!string.IsNullOrWhiteSpace(_settings.DeepgramRedact))
+            {
+                options.Redact = _settings.DeepgramRedact.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
             }
             
             // Keyword boosting
