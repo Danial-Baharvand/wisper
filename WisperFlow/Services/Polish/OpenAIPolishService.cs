@@ -200,6 +200,65 @@ RULES:
         }
     }
 
+    public async Task<string> GenerateAsync(string instruction, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(instruction)) return "";
+
+        var apiKey = GetApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            _logger.LogWarning("No API key for generate");
+            return "";
+        }
+
+        _logger.LogInformation("Generating via OpenAI {Model}: {Instruction}", _apiModelName, instruction);
+
+        var systemPrompt = @"You are a helpful writing assistant. Generate text exactly as the user requests.
+Output only the requested text with no explanations, preamble, or commentary.";
+
+        try
+        {
+            var requestBody = BuildRequestBody(
+                systemPrompt,
+                instruction,
+                maxTokens: 1500,
+                temperature: 0.7  // More creative for generation
+            );
+
+            var json = JsonSerializer.Serialize(requestBody);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            request.Content = content;
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Generate API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
+                return "";
+            }
+
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(responseJson);
+            var result = doc.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? "";
+
+            result = result.Trim();
+            _logger.LogInformation("Generate complete: {Len} chars", result.Length);
+            return result;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Generate failed");
+            return "";
+        }
+    }
+
     private static string? GetApiKey() =>
         Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? CredentialManager.GetApiKey();
 

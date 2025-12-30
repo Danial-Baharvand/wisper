@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Automation;
 using Microsoft.Extensions.Logging;
 
 namespace WisperFlow.Services;
@@ -257,6 +258,143 @@ public static class ClipboardHelper
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
+    
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+    
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+    
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     #endregion
+    
+    /// <summary>
+    /// Checks if the currently focused element is an ACTUAL editable text input field.
+    /// Uses Windows UI Automation with strict checks to avoid false positives in browsers.
+    /// Only returns true for genuine text inputs where you can type (caret blinking).
+    /// </summary>
+    public static bool IsTextInputFocused()
+    {
+        try
+        {
+            // Use UI Automation to get the focused element
+            var focusedElement = AutomationElement.FocusedElement;
+            if (focusedElement == null)
+            {
+                _logger?.LogDebug("UI Automation: No focused element");
+                return false;
+            }
+
+            // Get element info for logging
+            string controlTypeName = "unknown";
+            string name = "";
+            string className = "";
+            string automationId = "";
+            ControlType? controlType = null;
+            
+            try
+            {
+                controlType = focusedElement.Current.ControlType;
+                controlTypeName = controlType?.ProgrammaticName ?? "unknown";
+                name = focusedElement.Current.Name ?? "";
+                className = focusedElement.Current.ClassName ?? "";
+                automationId = focusedElement.Current.AutomationId ?? "";
+            }
+            catch { /* Ignore property access errors */ }
+
+            // STRICT CHECK 1: Must be an Edit control type
+            // This excludes Document (browser content), Pane, Window, etc.
+            bool isEditControlType = controlType == ControlType.Edit;
+            
+            // STRICT CHECK 2: For ComboBox, also accept (dropdowns with text input)
+            bool isComboBox = controlType == ControlType.ComboBox;
+            
+            // STRICT CHECK 3: Check if it supports VALUE pattern and is NOT read-only
+            bool hasEditableValue = false;
+            try
+            {
+                if (focusedElement.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern))
+                {
+                    var valuePattern = pattern as ValuePattern;
+                    if (valuePattern != null)
+                    {
+                        hasEditableValue = !valuePattern.Current.IsReadOnly;
+                    }
+                }
+            }
+            catch { /* Ignore */ }
+
+            // STRICT CHECK 4: For rich text, check if it's an actual editor
+            // (not just a document viewer)
+            bool isRichTextEditor = false;
+            if (controlType == ControlType.Document)
+            {
+                // Only accept Document if it has specific edit-related class names
+                var editClassNames = new[] { 
+                    "edit", "richedit", "textbox", "input", "textarea",
+                    "ace_editor", "monaco", "codemirror", // Code editors
+                    "contenteditable", "ql-editor", // Rich text editors
+                    "draft-editor", "prosemirror" // More rich text editors
+                };
+                var classLower = className.ToLowerInvariant();
+                isRichTextEditor = editClassNames.Any(ec => classLower.Contains(ec));
+            }
+
+            // STRICT CHECK 5: Check class name for common text input patterns
+            bool hasTextInputClassName = false;
+            if (!string.IsNullOrEmpty(className))
+            {
+                var classLower = className.ToLowerInvariant();
+                var textInputPatterns = new[] { 
+                    "edit", "textbox", "input", "textarea", "richedit",
+                    "searchbox", "addressbar", "urlbar", "omnibox"
+                };
+                hasTextInputClassName = textInputPatterns.Any(p => classLower.Contains(p));
+            }
+
+            // Final decision: Must be an Edit control with editable value
+            // OR a ComboBox with editable value
+            // OR a verified rich text editor
+            bool isTextInput = (isEditControlType && hasEditableValue) ||
+                              (isComboBox && hasEditableValue) ||
+                              (isRichTextEditor && hasEditableValue) ||
+                              (hasTextInputClassName && hasEditableValue);
+
+            _logger?.LogDebug("UI Automation: Type={Type}, Class={Class}, Name={Name}, " +
+                "IsEdit={IsEdit}, HasEditableValue={HasValue}, IsRichText={IsRich}, HasTextClass={HasClass} => Result={Result}",
+                controlTypeName, 
+                className.Length > 30 ? className[..30] + "..." : className,
+                name.Length > 20 ? name[..20] + "..." : name,
+                isEditControlType, hasEditableValue, isRichTextEditor, hasTextInputClassName,
+                isTextInput);
+
+            if (isTextInput)
+            {
+                _logger?.LogInformation("Text input CONFIRMED: {Type} ({Class})", controlTypeName, className);
+            }
+
+            return isTextInput;
+        }
+        catch (ElementNotAvailableException)
+        {
+            _logger?.LogDebug("UI Automation: Element not available (focus changed)");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "UI Automation failed, falling back to false");
+            return false;
+        }
+    }
 }

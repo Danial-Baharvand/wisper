@@ -519,6 +519,109 @@ OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.
         }
     }
 
+    public async Task<string> GenerateAsync(string instruction, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(instruction)) return "";
+        
+        if (_executor == null || _context == null)
+        {
+            _logger.LogWarning("GenerateAsync called but LLM not loaded - cannot generate");
+            throw new InvalidOperationException("Local LLM not loaded. Please select a different polish model or use OpenAI.");
+        }
+
+        _logger.LogInformation("Generating text with {Model}: {Instruction}", _model.Name, instruction);
+        var startTime = DateTime.UtcNow;
+        
+        try
+        {
+            var prompt = BuildGeneratePrompt(instruction);
+            var inferenceParams = new InferenceParams 
+            { 
+                MaxTokens = 1000,  // Allow longer output for generation
+                AntiPrompts = GetStopTokens(),
+                SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline 
+                { 
+                    Temperature = _model.Temperature,
+                    RepeatPenalty = _model.RepeatPenalty
+                }
+            };
+
+            var resultText = await Task.Run(async () =>
+            {
+                var result = new StringBuilder();
+                await foreach (var token in _executor.InferAsync(prompt, inferenceParams, cancellationToken))
+                {
+                    result.Append(token);
+                    if (result.Length > 2000) break;  // Safety limit for generation
+                }
+                return result.ToString();
+            }, cancellationToken);
+            
+            _logger.LogDebug("Raw generate output ({Len} chars): {Output}", resultText.Length, 
+                resultText.Length > 200 ? resultText[..200] + "..." : resultText);
+            
+            var generated = ExtractGeneratedResult(resultText);
+            
+            var elapsed = DateTime.UtcNow - startTime;
+            _logger.LogInformation("Generate done in {Time:F1}s", elapsed.TotalSeconds);
+            
+            return generated;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Generate failed");
+            return "";
+        }
+    }
+
+    private string BuildGeneratePrompt(string instruction)
+    {
+        // Build a prompt for text generation based on instruction
+        var systemPrompt = "You are a helpful writing assistant. Generate text exactly as requested. Output only the requested text with no explanations or preamble.";
+        
+        return _model.PromptTemplate switch
+        {
+            "llama3" => $"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{systemPrompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{instruction}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+            "qwen2" => $"<|im_start|>system\n{systemPrompt}<|im_end|>\n<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n",
+            "qwen3" => $"<|im_start|>system\n{systemPrompt}<|im_end|>\n<|im_start|>user\n/no_think\n{instruction}<|im_end|>\n<|im_start|>assistant\n",
+            "smollm" => $"<|im_start|>system\n{systemPrompt}<|im_end|>\n<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n",
+            "gemma" or "gemma2" => $"<start_of_turn>user\n{instruction}<end_of_turn>\n<start_of_turn>model\n",
+            "gemma3" => $"<start_of_turn>user\n{instruction}<end_of_turn>\n<start_of_turn>model\n",
+            "mistral" => $"[INST] {instruction} [/INST]\n",
+            "openchat" => $"GPT4 Correct User: {instruction}<|end_of_turn|>GPT4 Correct Assistant: ",
+            "tinyllama" => $"<|system|>\n{systemPrompt}</s>\n<|user|>\n{instruction}</s>\n<|assistant|>\n",
+            _ => $"### Instruction:\n{instruction}\n\n### Response:\n"
+        };
+    }
+
+    private string ExtractGeneratedResult(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output)) return "";
+        
+        // Remove prompt template markers
+        var promptMarkers = new[] { 
+            "<|user|>", "<|assistant|>", "<|system|>", "</s>", "<s>",
+            "<|begin_of_text|>", "<|eot_id|>", "<|start_header_id|>", "<|end_header_id|>",
+            "<|im_start|>", "<|im_end|>",
+            "<start_of_turn>", "<end_of_turn>",
+            "[INST]", "[/INST]", "###"
+        };
+        foreach (var marker in promptMarkers)
+        {
+            output = output.Replace(marker, " ");
+        }
+        
+        // Clean up and return
+        output = output.Trim();
+        
+        // Remove quotes if the whole output is quoted
+        if ((output.StartsWith("\"") && output.EndsWith("\"")) || 
+            (output.StartsWith("'") && output.EndsWith("'")))
+            output = output[1..^1];
+        
+        return output.Trim();
+    }
+
     private string BuildTransformPrompt(string text, string command)
     {
         // Small models (TinyLlama, SmolLM) need simpler, direct prompts without structured output

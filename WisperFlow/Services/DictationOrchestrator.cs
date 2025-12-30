@@ -25,7 +25,8 @@ public class DictationOrchestrator
     private bool _isProcessing;
     private bool _servicesInitializing;
     private bool _isCommandMode;  // Track if we're processing a command
-    private string? _commandModeSelectedText;  // Selected text captured at command start
+    private string? _commandModeSelectedText;  // Selected text captured at command stop
+    private bool _commandModeTextInputFocused;  // Whether a text input was focused
 
     public DictationOrchestrator(
         HotkeyManager hotkeyManager,
@@ -291,18 +292,31 @@ public class DictationOrchestrator
             return;
         }
 
-        // Capture selected text NOW (modifiers are released, so clipboard operations work)
-        _logger.LogDebug("Attempting to capture selected text...");
-        _commandModeSelectedText = await ClipboardHelper.GetSelectedTextAsync();
-        if (!string.IsNullOrWhiteSpace(_commandModeSelectedText))
+        // Check if a text input is focused FIRST (before any clipboard operations)
+        _commandModeTextInputFocused = ClipboardHelper.IsTextInputFocused();
+        _logger.LogInformation("Text input focused: {Focused}", _commandModeTextInputFocused);
+
+        // Only try to capture selected text if a text input is detected
+        // This avoids triggering clipboard popups in apps like Gmail when no textbox is focused
+        _commandModeSelectedText = null;
+        if (_commandModeTextInputFocused)
         {
-            _logger.LogInformation("Command mode: captured {Len} chars of selected text: '{Preview}'", 
-                _commandModeSelectedText.Length, 
-                _commandModeSelectedText.Length > 50 ? _commandModeSelectedText[..50] + "..." : _commandModeSelectedText);
+            _logger.LogDebug("Attempting to capture selected text...");
+            _commandModeSelectedText = await ClipboardHelper.GetSelectedTextAsync();
+            
+            if (!string.IsNullOrWhiteSpace(_commandModeSelectedText))
+            {
+                _logger.LogInformation("Command mode: TRANSFORM - captured {Len} chars of selected text", 
+                    _commandModeSelectedText.Length);
+            }
+            else
+            {
+                _logger.LogInformation("Command mode: GENERATE - text input focused, no selection");
+            }
         }
         else
         {
-            _logger.LogWarning("Command mode: NO text was captured from clipboard");
+            _logger.LogInformation("Command mode: SEARCH - no text input focused");
         }
 
         await ProcessCommandRecordingAsync(audioFilePath);
@@ -344,18 +358,25 @@ public class DictationOrchestrator
             _logger.LogInformation("Raw command: {Command}", rawCommand);
 
             // Use raw command directly - don't polish user instructions
-            // Polish is meant for transcribed text, not commands/instructions
             var command = rawCommand.Trim();
 
-            // Use the text captured at command start
+            // Decide mode based on text input focus and selected text
             if (!string.IsNullOrWhiteSpace(_commandModeSelectedText))
             {
-                // Text was selected - transform it according to the command
+                // Mode 1: Text was selected - transform it according to the command
+                _logger.LogInformation("Mode: Transform selected text");
                 await ProcessTextTransformAsync(_commandModeSelectedText, command, cts?.Token ?? CancellationToken.None);
+            }
+            else if (_commandModeTextInputFocused)
+            {
+                // Mode 2: Text input focused but no text selected - generate new text
+                _logger.LogInformation("Mode: Generate new text");
+                await ProcessTextGenerateAsync(command, cts?.Token ?? CancellationToken.None);
             }
             else
             {
-                // No text was selected - open in browser
+                // Mode 3: No text input focused - open in browser
+                _logger.LogInformation("Mode: Search");
                 _overlayWindow.Hide();
                 await BrowserQueryService.OpenQueryAsync(command, settings.CommandModeSearchEngine);
                 _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine, command);
@@ -433,5 +454,50 @@ public class DictationOrchestrator
         _overlayWindow.Hide();
         await ClipboardHelper.ReplaceSelectedTextAsync(transformedText);
         _logger.LogInformation("Replaced selected text");
+    }
+
+    private async Task ProcessTextGenerateAsync(string instruction, CancellationToken cancellationToken)
+    {
+        _overlayWindow.ShowPolishing("Generating...");
+        _logger.LogInformation("Generating text with instruction: '{Instruction}'", instruction);
+
+        var settings = _settingsManager.CurrentSettings;
+        _polishService ??= _serviceFactory.CreatePolishService(settings.PolishModelId);
+
+        if (!_polishService.IsReady)
+        {
+            _logger.LogInformation("Initializing polish service...");
+            await _polishService.InitializeAsync(cancellationToken);
+        }
+
+        string generatedText;
+        try
+        {
+            generatedText = await _polishService.GenerateAsync(instruction, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Generate failed - polish service not ready");
+            _overlayWindow.ShowError("Polish model failed. Use OpenAI in settings.");
+            return;
+        }
+
+        _logger.LogDebug("GenerateAsync returned: '{Text}'", 
+            string.IsNullOrEmpty(generatedText) ? "(empty)" : 
+            (generatedText.Length > 100 ? generatedText[..100] + "..." : generatedText));
+
+        if (string.IsNullOrWhiteSpace(generatedText))
+        {
+            _logger.LogWarning("Generate returned empty text");
+            _overlayWindow.ShowError("Generation failed");
+            return;
+        }
+
+        _logger.LogInformation("Generated text: {Len} chars", generatedText.Length);
+
+        // Insert the generated text at cursor position
+        _overlayWindow.Hide();
+        await ClipboardHelper.ReplaceSelectedTextAsync(generatedText);
+        _logger.LogInformation("Inserted generated text");
     }
 }

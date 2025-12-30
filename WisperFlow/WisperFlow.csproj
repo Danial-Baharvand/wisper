@@ -35,6 +35,12 @@
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.25.0" />
   </ItemGroup>
 
+  <!-- UI Automation for detecting text input focus -->
+  <ItemGroup>
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+  </ItemGroup>
+
   <ItemGroup>
     <Resource Include="Resources\app.ico" Condition="Exists('Resources\app.ico')" />
   </ItemGroup>
