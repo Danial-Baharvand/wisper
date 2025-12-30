@@ -80,8 +80,9 @@ public class DeepgramTranscriptionService : ITranscriptionService
 
         try
         {
-            // Read the audio file
-            var audioBytes = await File.ReadAllBytesAsync(audioFilePath, cancellationToken);
+            // Use streaming read instead of loading entire file into memory
+            using var audioStream = new FileStream(audioFilePath, FileMode.Open, FileAccess.Read,
+                FileShare.Read, bufferSize: 4096, useAsync: true);
             
             // Build transcription options from settings
             var options = new PreRecordedSchema
@@ -131,8 +132,8 @@ public class DeepgramTranscriptionService : ITranscriptionService
             // Create cancellation token source from the token
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             
-            // Transcribe the audio file
-            var response = await _client!.TranscribeFile(audioBytes, options, cts);
+            // Transcribe the audio file using stream
+            var response = await _client!.TranscribeFile(audioStream, options, cts);
 
             var elapsed = DateTime.UtcNow - startTime;
             

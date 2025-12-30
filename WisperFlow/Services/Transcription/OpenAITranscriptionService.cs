@@ -44,8 +44,11 @@ public class OpenAITranscriptionService : ITranscriptionService
             try
             {
                 using var content = new MultipartFormDataContent();
-                var fileBytes = await File.ReadAllBytesAsync(audioFilePath, cancellationToken);
-                var fileContent = new ByteArrayContent(fileBytes);
+                
+                // Use streaming upload instead of loading entire file into memory
+                using var fileStream = new FileStream(audioFilePath, FileMode.Open, FileAccess.Read, 
+                    FileShare.Read, bufferSize: 4096, useAsync: true);
+                var fileContent = new StreamContent(fileStream);
                 fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
                 content.Add(fileContent, "file", Path.GetFileName(audioFilePath));
                 content.Add(new StringContent("whisper-1"), "model");

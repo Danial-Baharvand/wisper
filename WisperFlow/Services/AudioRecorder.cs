@@ -21,7 +21,6 @@ public class AudioRecorder : IDisposable
     private readonly WaveFormat _recordingFormat = new(16000, 16, 1);
 
     public event EventHandler? RecordingStarted;
-    public event EventHandler<string>? RecordingStopped;
     public event EventHandler<TimeSpan>? RecordingProgress;
     public event EventHandler? MaxDurationReached;
     /// <summary>

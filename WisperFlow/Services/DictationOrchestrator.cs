@@ -29,8 +29,6 @@ public class DictationOrchestrator
     private bool _isEnabled = true;
     private bool _isProcessing;
     private bool _servicesInitializing;
-    private bool _isCommandMode;  // Track if we're processing a command
-    private bool _isCodeDictationMode;  // Track if we're processing code dictation
     private string? _commandModeSelectedText;  // Selected text captured at command stop
     private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
@@ -437,7 +435,6 @@ public class DictationOrchestrator
         try
         {
             _currentOperationCts = new CancellationTokenSource();
-            _isCommandMode = true;
             _commandModeSelectedText = null;  // Will be captured on stop
             
             // Start recording and show overlay IMMEDIATELY
@@ -449,7 +446,6 @@ public class DictationOrchestrator
         {
             _logger.LogError(ex, "Failed to start command recording");
             _overlayWindow.ShowError("Failed to start recording");
-            _isCommandMode = false;
             _commandModeSelectedText = null;
         }
     }
@@ -466,7 +462,6 @@ public class DictationOrchestrator
         if (string.IsNullOrEmpty(audioFilePath))
         {
             _overlayWindow.Hide();
-            _isCommandMode = false;
             _isProcessing = false;
             return;
         }
@@ -602,7 +597,6 @@ public class DictationOrchestrator
         finally
         {
             _isProcessing = false;
-            _isCommandMode = false;
             _commandModeSelectedText = null;  // Clear captured text
             _commandModeSearchContext = null;  // Clear search context
             _audioRecorder.DeleteTempFile(audioFilePath);
@@ -724,7 +718,6 @@ public class DictationOrchestrator
         try
         {
             _currentOperationCts = new CancellationTokenSource();
-            _isCodeDictationMode = true;
             
             // Start recording and show overlay
             _overlayWindow.ShowRecording("Code Dictation");
@@ -735,7 +728,6 @@ public class DictationOrchestrator
         {
             _logger.LogError(ex, "Failed to start code dictation recording");
             _overlayWindow.ShowError("Failed to start recording");
-            _isCodeDictationMode = false;
         }
     }
 
@@ -751,7 +743,6 @@ public class DictationOrchestrator
         if (string.IsNullOrEmpty(audioFilePath))
         {
             _overlayWindow.Hide();
-            _isCodeDictationMode = false;
             _isProcessing = false;
             return;
         }
@@ -840,7 +831,6 @@ public class DictationOrchestrator
         finally
         {
             _isProcessing = false;
-            _isCodeDictationMode = false;
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();

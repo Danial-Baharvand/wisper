@@ -282,7 +282,7 @@ public class DeepgramStreamingService : ITranscriptionService
                     cancellationToken);
                 
                 // Step 4: Close WebSocket gracefully (with short timeout)
-                using var closeCts = new CancellationTokenSource(200);
+                using var closeCts = new CancellationTokenSource(100);  // Reduced from 200ms
                 try
                 {
                     await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Done", closeCts.Token);
@@ -307,7 +307,7 @@ public class DeepgramStreamingService : ITranscriptionService
         try
         {
             if (_receiveTask != null)
-                await _receiveTask.WaitAsync(TimeSpan.FromMilliseconds(100));
+                await _receiveTask.WaitAsync(TimeSpan.FromMilliseconds(50));  // Reduced from 100ms
         }
         catch { }
         

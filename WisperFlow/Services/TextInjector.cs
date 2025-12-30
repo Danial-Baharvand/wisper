@@ -7,8 +7,8 @@ namespace WisperFlow.Services;
 public class TextInjector
 {
     private readonly ILogger<TextInjector> _logger;
-    private const int ClipboardDelayMs = 50;
-    private const int PasteDelayMs = 150;
+    private const int ClipboardDelayMs = 30;   // Reduced from 50ms for faster response
+    private const int PasteDelayMs = 100;      // Reduced from 150ms for faster response
 
     public TextInjector(ILogger<TextInjector> logger)
     {
@@ -78,15 +78,15 @@ public class TextInjector
             
             // Press Ctrl
             keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-            await Task.Delay(10, cancellationToken);
+            await Task.Delay(5, cancellationToken);
             
             // Press V
             keybd_event(VK_V, 0, 0, UIntPtr.Zero);
-            await Task.Delay(10, cancellationToken);
+            await Task.Delay(5, cancellationToken);
             
             // Release V
             keybd_event(VK_V, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            await Task.Delay(10, cancellationToken);
+            await Task.Delay(5, cancellationToken);
             
             // Release Ctrl
             keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
@@ -98,7 +98,7 @@ public class TextInjector
             // Restore original clipboard
             if (hadOriginalContent && originalClipboard is string origText)
             {
-                await Task.Delay(200, cancellationToken);
+                await Task.Delay(100, cancellationToken);  // Reduced from 200ms
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     try { Clipboard.SetText(origText); }
