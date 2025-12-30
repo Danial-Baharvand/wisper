@@ -13,11 +13,13 @@ public class ServiceFactory
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ModelManager _modelManager;
+    private readonly SettingsManager _settingsManager;
 
-    public ServiceFactory(ILoggerFactory loggerFactory, ModelManager modelManager)
+    public ServiceFactory(ILoggerFactory loggerFactory, ModelManager modelManager, SettingsManager settingsManager)
     {
         _loggerFactory = loggerFactory;
         _modelManager = modelManager;
+        _settingsManager = settingsManager;
     }
 
     public ITranscriptionService CreateTranscriptionService(string modelId)
@@ -26,6 +28,15 @@ public class ServiceFactory
         if (model == null || model.Type != ModelType.Whisper || model.Source == ModelSource.OpenAI)
         {
             return new OpenAITranscriptionService(_loggerFactory.CreateLogger<OpenAITranscriptionService>());
+        }
+
+        // Use Deepgram for Deepgram models
+        if (model.Source == ModelSource.Deepgram)
+        {
+            return new DeepgramTranscriptionService(
+                _loggerFactory.CreateLogger<DeepgramTranscriptionService>(),
+                model,
+                _settingsManager.CurrentSettings);
         }
 
         // Use faster-whisper for FasterWhisper models (Python sidecar)
@@ -82,4 +93,3 @@ public class ServiceFactory
             _loggerFactory.CreateLogger<LocalCodeDictationService>());
     }
 }
-

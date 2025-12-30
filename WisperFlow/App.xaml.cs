@@ -157,7 +157,7 @@ public partial class App : Application
         var settings = _settingsManager.LoadSettings();
 
         _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
-        _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager);
+        _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager, _settingsManager);
         
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());

@@ -110,6 +110,53 @@ public class AppSettings
     /// Programming language for code dictation output.
     /// </summary>
     public string CodeDictationLanguage { get; set; } = "python";
+
+    // ===== Deepgram Settings =====
+    
+    /// <summary>
+    /// Use streaming mode for Deepgram (real-time partial results).
+    /// </summary>
+    public bool DeepgramStreaming { get; set; } = false;
+
+    /// <summary>
+    /// Enable smart formatting (numbers, dates, currency).
+    /// </summary>
+    public bool DeepgramSmartFormat { get; set; } = true;
+
+    /// <summary>
+    /// Enable automatic punctuation.
+    /// </summary>
+    public bool DeepgramPunctuate { get; set; } = true;
+
+    /// <summary>
+    /// Enable speaker diarization (identify different speakers).
+    /// </summary>
+    public bool DeepgramDiarize { get; set; } = false;
+
+    /// <summary>
+    /// Enable utterance detection (split into sentences).
+    /// </summary>
+    public bool DeepgramUtterances { get; set; } = false;
+
+    /// <summary>
+    /// Enable paragraph detection.
+    /// </summary>
+    public bool DeepgramParagraphs { get; set; } = false;
+
+    /// <summary>
+    /// Enable filler word detection ("um", "uh").
+    /// </summary>
+    public bool DeepgramFillerWords { get; set; } = false;
+
+    /// <summary>
+    /// Keywords to boost recognition (comma-separated).
+    /// </summary>
+    public string DeepgramKeywords { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Profanity filter mode: "false", "true" (mask), or "strict" (remove).
+    /// </summary>
+    public string DeepgramProfanityFilter { get; set; } = "false";
 }
 
 /// <summary>

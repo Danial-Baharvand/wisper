@@ -9,7 +9,7 @@ using WisperFlow.Services.Transcription;
 namespace WisperFlow;
 
 /// <summary>
-/// Settings window for configuring WisperFlow.
+/// Settings window for configuring WisperFlow with sidebar navigation.
 /// </summary>
 public partial class SettingsWindow : Window
 {
@@ -26,6 +26,9 @@ public partial class SettingsWindow : Window
     private HotkeyModifiers _commandCapturedModifiers;
     private HotkeyModifiers _codeDictationCapturedModifiers;
 
+    // All section panels for navigation
+    private readonly Dictionary<string, StackPanel> _sections = new();
+
     public SettingsWindow(
         SettingsManager settingsManager,
         DictationOrchestrator orchestrator,
@@ -40,6 +43,16 @@ public partial class SettingsWindow : Window
         _modelManager = modelManager;
         _settings = settingsManager.CurrentSettings;
 
+        // Initialize sections dictionary
+        _sections["NavGeneral"] = SectionGeneral;
+        _sections["NavAudio"] = SectionAudio;
+        _sections["NavTranscription"] = SectionTranscription;
+        _sections["NavDeepgram"] = SectionDeepgram;
+        _sections["NavPolish"] = SectionPolish;
+        _sections["NavCodeDictation"] = SectionCodeDictation;
+        _sections["NavCommand"] = SectionCommand;
+        _sections["NavApiKeys"] = SectionApiKeys;
+
         LoadSettings();
         PopulateMicrophones();
         PopulateLanguages();
@@ -47,12 +60,32 @@ public partial class SettingsWindow : Window
         PopulateSearchEngines();
         PopulateCodeDictationModels();
         PopulateCodeDictationLanguages();
+        PopulateDeepgramOptions();
         UpdateApiKeyStatus();
+        
+        // Set version
+        VersionText.Text = "v1.0.0";
+    }
+
+    private void Nav_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is RadioButton rb && _sections.ContainsKey(rb.Name))
+        {
+            // Hide all sections
+            foreach (var section in _sections.Values)
+            {
+                section.Visibility = Visibility.Collapsed;
+            }
+            
+            // Show selected section
+            _sections[rb.Name].Visibility = Visibility.Visible;
+        }
     }
 
     private void LoadSettings()
     {
         // Regular dictation hotkey
+        _capturedModifiers = _settings.HotkeyModifiers;
         HotkeyTextBox.Text = FormatHotkey(_settings.HotkeyModifiers);
 
         // Command mode
@@ -72,8 +105,39 @@ public partial class SettingsWindow : Window
         // Startup
         StartupCheckBox.IsChecked = _settings.LaunchAtStartup;
         
-        // Log path
-        LogPathText.Text = $"Log: {App.LogFilePath}";
+        // Deepgram settings
+        DeepgramStreamingCheckBox.IsChecked = _settings.DeepgramStreaming;
+        DeepgramSmartFormatCheckBox.IsChecked = _settings.DeepgramSmartFormat;
+        DeepgramPunctuateCheckBox.IsChecked = _settings.DeepgramPunctuate;
+        DeepgramDiarizeCheckBox.IsChecked = _settings.DeepgramDiarize;
+        DeepgramUtterancesCheckBox.IsChecked = _settings.DeepgramUtterances;
+        DeepgramParagraphsCheckBox.IsChecked = _settings.DeepgramParagraphs;
+        DeepgramFillerWordsCheckBox.IsChecked = _settings.DeepgramFillerWords;
+        DeepgramKeywordsTextBox.Text = _settings.DeepgramKeywords;
+    }
+
+    private void PopulateDeepgramOptions()
+    {
+        DeepgramProfanityComboBox.Items.Clear();
+        
+        var options = new[] 
+        { 
+            ("false", "Off (no filter)"),
+            ("true", "Mask (*** profanity)"),
+            ("strict", "Remove (delete profanity)")
+        };
+        
+        foreach (var (value, display) in options)
+        {
+            var item = new ComboBoxItem { Content = display, Tag = value };
+            DeepgramProfanityComboBox.Items.Add(item);
+            
+            if (_settings.DeepgramProfanityFilter == value)
+                DeepgramProfanityComboBox.SelectedItem = item;
+        }
+        
+        if (DeepgramProfanityComboBox.SelectedItem == null)
+            DeepgramProfanityComboBox.SelectedIndex = 0;
     }
 
     private void PopulateSearchEngines()
@@ -152,9 +216,9 @@ public partial class SettingsWindow : Window
 
     private void UpdateApiKeyStatus()
     {
-        var hasKey = CredentialManager.HasApiKey();
-        
-        if (hasKey)
+        // OpenAI API Key status
+        var hasOpenAIKey = CredentialManager.HasApiKey();
+        if (hasOpenAIKey)
         {
             ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170));
             ApiKeyStatusText.Text = "API key configured";
@@ -163,6 +227,19 @@ public partial class SettingsWindow : Window
         {
             ApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
             ApiKeyStatusText.Text = "No API key found";
+        }
+        
+        // Deepgram API Key status
+        var hasDeepgramKey = CredentialManager.HasDeepgramApiKey();
+        if (hasDeepgramKey)
+        {
+            DeepgramApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170));
+            DeepgramApiKeyStatusText.Text = "API key configured";
+        }
+        else
+        {
+            DeepgramApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
+            DeepgramApiKeyStatusText.Text = "No API key found (required for Deepgram models)";
         }
     }
 
@@ -176,6 +253,7 @@ public partial class SettingsWindow : Window
         foreach (var model in ModelCatalog.WhisperModels)
         {
             var isFasterWhisper = model.Source == ModelSource.FasterWhisper;
+            var isDeepgram = model.Source == ModelSource.Deepgram;
             var installed = _modelManager.IsModelInstalled(model);
             
             string displayName;
@@ -188,6 +266,14 @@ public partial class SettingsWindow : Window
                 displayName = $"{model.Name} (unavailable)";
                 isEnabled = false;
                 tooltip = FasterWhisperAvailability.UnavailableReason;
+            }
+            else if (isDeepgram)
+            {
+                // Deepgram models - check API key
+                var hasKey = CredentialManager.HasDeepgramApiKey();
+                displayName = hasKey ? model.Name : $"{model.Name} (needs API key)";
+                isEnabled = hasKey;
+                tooltip = hasKey ? null : "Configure Deepgram API key in API Keys section";
             }
             else if (installed)
             {
@@ -253,6 +339,10 @@ public partial class SettingsWindow : Window
                 if (model.Source == ModelSource.FasterWhisper && !FasterWhisperAvailability.IsAvailable)
                 {
                     status = $" ⚠️ {FasterWhisperAvailability.UnavailableReason}";
+                }
+                else if (model.Source == ModelSource.Deepgram)
+                {
+                    status = CredentialManager.HasDeepgramApiKey() ? " ✓ Ready" : " ⚠️ API key required";
                 }
                 else if (!_modelManager.IsModelInstalled(model))
                 {
@@ -347,12 +437,14 @@ public partial class SettingsWindow : Window
     {
         _isCapturingHotkey = true;
         _capturedModifiers = HotkeyModifiers.None;
+        _activeHotkeyTextBox = HotkeyTextBox;
         HotkeyTextBox.Text = "Hold modifier keys, then release...";
     }
 
     private void HotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
         _isCapturingHotkey = false;
+        _activeHotkeyTextBox = null;
         
         if (_capturedModifiers == HotkeyModifiers.None)
         {
@@ -362,7 +454,7 @@ public partial class SettingsWindow : Window
 
     private void HotkeyTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!_isCapturingHotkey) return;
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != HotkeyTextBox) return;
 
         e.Handled = true;
         
@@ -385,7 +477,7 @@ public partial class SettingsWindow : Window
 
     private void HotkeyTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
     {
-        if (!_isCapturingHotkey) return;
+        if (!_isCapturingHotkey || _activeHotkeyTextBox != HotkeyTextBox) return;
 
         e.Handled = true;
 
@@ -402,6 +494,7 @@ public partial class SettingsWindow : Window
             _settings.HotkeyModifiers = _capturedModifiers;
             HotkeyTextBox.Text = FormatHotkey(_capturedModifiers);
             _isCapturingHotkey = false;
+            _activeHotkeyTextBox = null;
             Keyboard.ClearFocus();
         }
     }
@@ -551,8 +644,29 @@ public partial class SettingsWindow : Window
         
         ApiKeyPasswordBox.Password = "";
         UpdateApiKeyStatus();
+        PopulateModels(); // Refresh model availability
         
-        MessageBox.Show("API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show("OpenAI API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+    
+    private void SaveDeepgramApiKey_Click(object sender, RoutedEventArgs e)
+    {
+        var apiKey = DeepgramApiKeyPasswordBox.Password.Trim();
+        
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            CredentialManager.DeleteDeepgramApiKey();
+        }
+        else
+        {
+            CredentialManager.SaveDeepgramApiKey(apiKey);
+        }
+        
+        DeepgramApiKeyPasswordBox.Password = "";
+        UpdateApiKeyStatus();
+        PopulateModels(); // Refresh model availability
+        
+        MessageBox.Show("Deepgram API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -589,6 +703,18 @@ public partial class SettingsWindow : Window
             _settings.TranscriptionModelId = transItem.Tag?.ToString() ?? "openai-whisper";
         if (PolishModelComboBox.SelectedItem is ComboBoxItem polishItem)
             _settings.PolishModelId = polishItem.Tag?.ToString() ?? "openai-gpt4o-mini";
+            
+        // Deepgram settings
+        _settings.DeepgramStreaming = DeepgramStreamingCheckBox.IsChecked ?? false;
+        _settings.DeepgramSmartFormat = DeepgramSmartFormatCheckBox.IsChecked ?? true;
+        _settings.DeepgramPunctuate = DeepgramPunctuateCheckBox.IsChecked ?? true;
+        _settings.DeepgramDiarize = DeepgramDiarizeCheckBox.IsChecked ?? false;
+        _settings.DeepgramUtterances = DeepgramUtterancesCheckBox.IsChecked ?? false;
+        _settings.DeepgramParagraphs = DeepgramParagraphsCheckBox.IsChecked ?? false;
+        _settings.DeepgramFillerWords = DeepgramFillerWordsCheckBox.IsChecked ?? false;
+        _settings.DeepgramKeywords = DeepgramKeywordsTextBox.Text?.Trim() ?? "";
+        if (DeepgramProfanityComboBox.SelectedItem is ComboBoxItem profanityItem)
+            _settings.DeepgramProfanityFilter = profanityItem.Tag?.ToString() ?? "false";
 
         // Save settings
         _settingsManager.SaveSettings(_settings);
@@ -611,10 +737,4 @@ public partial class SettingsWindow : Window
     {
         App.OpenLogFile();
     }
-    
-    private void OpenLogFolder_Click(object sender, RoutedEventArgs e)
-    {
-        App.OpenLogFolder();
-    }
 }
-

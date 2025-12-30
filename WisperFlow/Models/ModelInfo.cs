@@ -28,7 +28,7 @@ public class ModelInfo
 }
 
 public enum ModelType { Whisper, LLM }
-public enum ModelSource { OpenAI, Local, FasterWhisper }
+public enum ModelSource { OpenAI, Local, FasterWhisper, Deepgram }
 
 public class DownloadProgress
 {
@@ -165,6 +165,59 @@ public static class ModelCatalog
         SizeBytes = 1_500_000_000,
         DownloadUrl = "https://huggingface.co/distil-whisper/distil-large-v3.5-ggml/resolve/main/ggml-model.bin",
         FileName = "ggml-distil-large-v3.bin"
+    };
+    
+    // ===== DEEPGRAM MODELS (cloud API, requires Deepgram API key) =====
+    // Ultra-fast cloud transcription with industry-leading accuracy
+    
+    public static readonly ModelInfo DeepgramNova3 = new()
+    {
+        Id = "deepgram-nova-3",
+        Name = "🚀 Deepgram Nova-3",
+        Description = "Fastest cloud, <300ms latency, best accuracy",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Deepgram,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo DeepgramNova2 = new()
+    {
+        Id = "deepgram-nova-2",
+        Name = "🚀 Deepgram Nova-2",
+        Description = "Great speed/accuracy, 30% cheaper than OpenAI",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Deepgram,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo DeepgramNova2Medical = new()
+    {
+        Id = "deepgram-nova-2-medical",
+        Name = "🚀 Deepgram Medical",
+        Description = "Optimized for healthcare terminology",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Deepgram,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo DeepgramWhisperCloud = new()
+    {
+        Id = "deepgram-whisper-cloud",
+        Name = "🚀 Deepgram Whisper",
+        Description = "OpenAI Whisper hosted by Deepgram, faster",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Deepgram,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo DeepgramBase = new()
+    {
+        Id = "deepgram-base",
+        Name = "🚀 Deepgram Base",
+        Description = "Budget option, fastest, good for simple tasks",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Deepgram,
+        SizeBytes = 0
     };
     
     // ===== FASTER-WHISPER MODELS (requires Python + faster-whisper) =====
@@ -382,11 +435,13 @@ public static class ModelCatalog
     
     public static IReadOnlyList<ModelInfo> WhisperModels { get; } = new[]
     {
+        // Cloud APIs (fastest, requires API key)
         OpenAIWhisper,
-        // Faster-Whisper models (fastest, requires Python)
+        DeepgramNova3, DeepgramNova2, DeepgramWhisperCloud, DeepgramNova2Medical, DeepgramBase,
+        // Faster-Whisper models (fast local, requires Python)
         FasterWhisperBaseEn, FasterWhisperSmallEn, FasterWhisperMediumEn,
         FasterWhisperDistilLargeV3, FasterWhisperLargeV3, FasterWhisperTinyEn,
-        // Standard Whisper.net models
+        // Standard Whisper.net models (local)
         WhisperTinyEn, WhisperBaseEn, WhisperSmallEn, WhisperMediumEn,
         DistilWhisperLargeV3, WhisperLargeV3Turbo,
         // Multilingual models
