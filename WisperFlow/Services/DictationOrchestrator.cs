@@ -26,6 +26,7 @@ public class DictationOrchestrator
     private bool _servicesInitializing;
     private bool _isCommandMode;  // Track if we're processing a command
     private string? _commandModeSelectedText;  // Selected text captured at command stop
+    private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
 
     public DictationOrchestrator(
@@ -296,12 +297,14 @@ public class DictationOrchestrator
         _commandModeTextInputFocused = ClipboardHelper.IsTextInputFocused();
         _logger.LogInformation("Text input focused: {Focused}", _commandModeTextInputFocused);
 
-        // Only try to capture selected text if a text input is detected
-        // This avoids triggering clipboard popups in apps like Gmail when no textbox is focused
+        // Reset state
         _commandModeSelectedText = null;
+        _commandModeSearchContext = null;
+
         if (_commandModeTextInputFocused)
         {
-            _logger.LogDebug("Attempting to capture selected text...");
+            // Text input is focused - try to capture selected text for TRANSFORM
+            _logger.LogDebug("Text input focused - attempting to capture selected text...");
             _commandModeSelectedText = await ClipboardHelper.GetSelectedTextAsync();
             
             if (!string.IsNullOrWhiteSpace(_commandModeSelectedText))
@@ -316,7 +319,20 @@ public class DictationOrchestrator
         }
         else
         {
-            _logger.LogInformation("Command mode: SEARCH - no text input focused");
+            // No text input focused - this will be SEARCH mode
+            // But try to capture any highlighted text as context for the search
+            _logger.LogDebug("No text input - attempting to capture highlighted text for search context...");
+            _commandModeSearchContext = await ClipboardHelper.GetSelectedTextAsync();
+            
+            if (!string.IsNullOrWhiteSpace(_commandModeSearchContext))
+            {
+                _logger.LogInformation("Command mode: SEARCH with context - captured {Len} chars of highlighted text", 
+                    _commandModeSearchContext.Length);
+            }
+            else
+            {
+                _logger.LogInformation("Command mode: SEARCH - no highlighted text");
+            }
         }
 
         await ProcessCommandRecordingAsync(audioFilePath);
@@ -376,10 +392,24 @@ public class DictationOrchestrator
             else
             {
                 // Mode 3: No text input focused - open in browser
-                _logger.LogInformation("Mode: Search");
+                // If there's highlighted text, include it as context
+                string searchQuery;
+                if (!string.IsNullOrWhiteSpace(_commandModeSearchContext))
+                {
+                    // Format: "User's question\n\nHighlighted text as context"
+                    searchQuery = $"{command}\n\n{_commandModeSearchContext}";
+                    _logger.LogInformation("Mode: Search with context ({ContextLen} chars)", _commandModeSearchContext.Length);
+                }
+                else
+                {
+                    searchQuery = command;
+                    _logger.LogInformation("Mode: Search (no context)");
+                }
+                
                 _overlayWindow.Hide();
-                await BrowserQueryService.OpenQueryAsync(command, settings.CommandModeSearchEngine);
-                _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine, command);
+                await BrowserQueryService.OpenQueryAsync(searchQuery, settings.CommandModeSearchEngine);
+                _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine, 
+                    searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
             }
         }
         catch (OperationCanceledException)
@@ -396,6 +426,7 @@ public class DictationOrchestrator
             _isProcessing = false;
             _isCommandMode = false;
             _commandModeSelectedText = null;  // Clear captured text
+            _commandModeSearchContext = null;  // Clear search context
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();
