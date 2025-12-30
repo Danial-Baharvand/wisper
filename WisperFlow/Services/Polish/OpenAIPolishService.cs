@@ -17,16 +17,65 @@ public class OpenAIPolishService : IPolishService
     private readonly string _apiModelName;
     private const string Endpoint = "https://api.openai.com/v1/chat/completions";
 
-    private const string TypingPrompt = @"Clean up this speech transcription with minimal changes:
-- Add punctuation and fix capitalization
-- Remove filler words (um, uh, like, you know)
-- Convert spoken commands: ""new line"" → newline, ""comma"" → ,
+    private const string TypingPrompt = @"You are a speech-to-text post-processor. Clean up the transcription intelligently.
+
+SELF-CORRECTIONS (remove the incorrect part, keep the correction):
+- ""I went to the oh actually I drove to the store"" → ""I drove to the store""
+- ""The meeting is on Monday no wait Tuesday"" → ""The meeting is on Tuesday""
+- ""She said hello sorry she said goodbye"" → ""She said goodbye""
+- ""discard last sentence"" / ""delete that"" / ""scratch that"" → remove the preceding sentence
+- ""let's go back to the beginning"" / ""start over"" → keep only what follows
+
+INLINE EDITS (apply the requested change):
+- ""change the word good to great"" → replace 'good' with 'great' in the text
+- ""replace happy with excited"" → replace 'happy' with 'excited' in the text
+
+STUTTERING & DUPLICATES:
+- ""I I I went to the store"" → ""I went to the store""
+- ""the the meeting"" → ""the meeting""
+
+FORMATTING COMMANDS:
+- ""new line"" / ""next line"" → actual newline
+- ""new paragraph"" → double newline
+- ""open parenthesis"" / ""open paren"" → (
+- ""close parenthesis"" / ""close paren"" → )
+- ""open bracket"" → [, ""close bracket"" → ]
+- ""open quote"" / ""quote"" → "", ""close quote"" / ""end quote"" / ""unquote"" → ""
+- ""comma"" → ,  ""period"" / ""full stop"" → .  ""question mark"" → ?
+- ""colon"" → :  ""semicolon"" → ;  ""dash"" / ""hyphen"" → -
+- ""exclamation point"" / ""exclamation mark"" → !
+
+ALSO:
+- Fix punctuation and capitalization
+- Remove filler words (um, uh, like, you know, basically, so, I mean)
+- Fix homophones (there/their/they're, your/you're)
+- Fix phonetic mistranscriptions (""my crow soft"" → ""Microsoft"")
+
 Return ONLY the cleaned text, nothing else.";
 
-    private const string NotesPrompt = @"Format this speech transcription as clean notes:
-- Add punctuation and capitalization
-- Remove ALL filler words
-- Convert: ""bullet point"" → •, ""heading"" → **text**
+    private const string NotesPrompt = @"You are a speech-to-text post-processor for note-taking. Format the transcription as clean notes.
+
+SELF-CORRECTIONS (remove the incorrect part, keep the correction):
+- ""The price is fifty oh actually sixty dollars"" → ""The price is sixty dollars""
+- ""We need three no make that four items"" → ""We need four items""
+- ""discard last sentence"" / ""delete that"" → remove the preceding sentence
+
+INLINE EDITS:
+- ""change X to Y"" / ""replace X with Y"" → apply the substitution
+
+FORMATTING COMMANDS:
+- ""bullet point"" + text → • text
+- ""numbered list"" → 1. 2. 3. format
+- ""heading"" + text → **text**
+- ""new line"" → newline, ""new paragraph"" → double newline
+- Parentheses, brackets, quotes → actual symbols
+
+CLEANUP:
+- Remove ALL filler words and hesitations
+- Remove stuttering and repeated words
+- Fix grammar and homophones
+- Fix phonetic mistranscriptions
+
 Return ONLY the formatted text, nothing else.";
 
     public string ModelId => _modelId;

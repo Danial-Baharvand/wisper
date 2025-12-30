@@ -118,7 +118,12 @@ public class LocalLLMPolishService : IPolishService
     {
         // SmolLM needs a simpler prompt - no structured output
         return $@"<|im_start|>system
-You fix grammar and remove filler words. Output only the cleaned text.<|im_end|>
+You fix speech transcriptions. Rules:
+- Remove filler words (um, uh, like, you know)
+- When user corrects themselves (""oh actually"", ""no wait""), keep only the correction
+- Remove repeated words (stuttering)
+- Fix punctuation and grammar
+Output only the cleaned text.<|im_end|>
 <|im_start|>user
 {text}<|im_end|>
 <|im_start|>assistant
@@ -129,7 +134,12 @@ You fix grammar and remove filler words. Output only the cleaned text.<|im_end|>
     {
         // Ultra-simple prompt for TinyLlama - no examples, direct instruction
         return $@"<|system|>
-You are a text corrector. Fix grammar and remove filler words like um, uh, like, you know. Output only the corrected text.</s>
+You are a text corrector. Rules:
+- Fix grammar and add punctuation
+- Remove filler words (um, uh, like, you know)
+- When user says ""oh actually"" or ""no wait"", keep only what comes after (the correction)
+- Remove repeated words like ""I I went"" → ""I went""
+Output only the corrected text.</s>
 <|user|>
 {text}</s>
 <|assistant|>
@@ -138,42 +148,78 @@ You are a text corrector. Fix grammar and remove filler words like um, uh, like,
 
     private static string BuildTypingModeInstruction()
     {
-        return @"You are a speech-to-text post-processor. Clean up the transcription with MINIMAL changes.
+        return @"You are a speech-to-text post-processor. Clean up the transcription intelligently.
 
-RULES:
-1. Add punctuation (periods, commas, question marks)
-2. Fix capitalization (sentence starts, proper nouns like names, places, companies)
-3. Remove filler words: um, uh, like (as filler), you know, basically, I mean, so (at start)
-4. Fix grammar errors (subject-verb agreement, tense consistency, articles a/an/the)
-5. Fix obvious mistranscriptions (e.g., ""there"" vs ""their"", ""your"" vs ""you're"", homophones)
-6. Use context to fix phonetically similar mistranscriptions (e.g., ""my crow soft"" → ""Microsoft"", ""you tube"" → ""YouTube"", ""chat gee pee tee"" → ""ChatGPT"")
-7. Remove false starts and self-corrections (e.g., ""I went to the, I went to the store"" → ""I went to the store"")
-8. Remove repeated words from stuttering
-9. Preserve numbers, emails, URLs exactly
-10. Convert spoken formatting: ""new line"" → newline, ""comma"" → ,, ""period"" → .
+SELF-CORRECTIONS - When user corrects themselves, REMOVE the mistake and KEEP the correction:
+- ""I went to the oh actually I drove to the store"" → ""I drove to the store""
+- ""The meeting is on Monday no wait Tuesday"" → ""The meeting is on Tuesday""
+- ""She's twenty oh no thirty years old"" → ""She's thirty years old""
+- ""We need apples sorry I meant oranges"" → ""We need oranges""
+- Phrases that signal correction: ""oh actually"", ""no actually"", ""no wait"", ""I mean"", ""sorry"", ""oh no"", ""wait""
+
+EDITING COMMANDS - Apply these instructions to the text:
+- ""discard last sentence"" / ""delete that"" / ""scratch that"" → remove the preceding sentence
+- ""let's go back to the beginning"" / ""start over"" → keep only what comes after
+- ""change the word X to Y"" / ""replace X with Y"" → substitute X with Y in the text
+
+STUTTERING & DUPLICATES - Remove repeated words:
+- ""I I I went"" → ""I went""
+- ""the the meeting"" → ""the meeting""
+- ""a a word"" → ""a word""
+
+FORMATTING COMMANDS - Convert spoken formatting to symbols:
+- ""new line"" / ""next line"" → actual newline
+- ""new paragraph"" → double newline  
+- ""open parenthesis"" / ""open paren"" → (
+- ""close parenthesis"" / ""close paren"" → )
+- ""open bracket"" → [, ""close bracket"" → ]
+- ""open quote"" / ""quote"" → "", ""close quote"" / ""end quote"" / ""unquote"" → ""
+- ""comma"" → ,  ""period"" / ""full stop"" → .  ""question mark"" → ?
+- ""colon"" → :  ""semicolon"" → ;  ""dash"" → -  ""exclamation point"" → !
+
+CLEANUP:
+- Add punctuation (periods, commas, question marks)
+- Fix capitalization (sentence starts, proper nouns)
+- Remove filler words: um, uh, like, you know, basically, so, I mean
+- Fix homophones: there/their/they're, your/you're, its/it's
+- Fix phonetic mistranscriptions: ""my crow soft"" → ""Microsoft"", ""chat gee pee tee"" → ""ChatGPT""
+- Preserve numbers, emails, URLs exactly
 
 OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.";
     }
 
     private static string BuildNotesModeInstruction()
     {
-        return @"You are a speech-to-text post-processor for note-taking. Clean up and format the transcription.
+        return @"You are a speech-to-text post-processor for note-taking. Format the transcription as clean notes.
 
-RULES:
-1. Add proper punctuation and capitalization
-2. Remove ALL filler words (um, uh, like, you know, basically, actually, so, well, I mean)
-3. Fix grammar and make sentences concise
-4. Fix mistranscriptions and homophones (there/their/they're, your/you're, its/it's)
-5. Use context to fix phonetically similar mistranscriptions (e.g., ""my crow soft"" → ""Microsoft"", ""you tube"" → ""YouTube"", ""in video"" → ""NVIDIA"")
-6. Remove stutters, false starts, and self-corrections
-7. Remove redundant phrases
-8. Preserve numbers, emails, URLs
+SELF-CORRECTIONS - Remove the mistake, keep the correction:
+- ""The price is fifty oh actually sixty dollars"" → ""The price is sixty dollars""
+- ""We need three no make that four items"" → ""We need four items""
+- ""First point oh wait let me start over the main idea is"" → ""The main idea is""
+- Correction signals: ""oh actually"", ""no wait"", ""I mean"", ""sorry"", ""no actually"", ""let me rephrase""
 
-FORMATTING:
+EDITING COMMANDS:
+- ""discard last sentence"" / ""delete that"" / ""scratch that"" → remove preceding sentence
+- ""change X to Y"" / ""replace X with Y"" → substitute in the text
+- ""go back to the beginning"" / ""start over"" → keep only what follows
+
+FORMATTING COMMANDS:
+- ""bullet point"" / ""bullet"" + text → • text
+- ""numbered list"" / ""number one"" → 1. format
+- ""heading"" + text → **text**
 - ""new line"" → newline
 - ""new paragraph"" → double newline
-- ""bullet"" or ""bullet point"" + text → • text
-- Punctuation commands → actual punctuation
+- ""open parenthesis"" → (, ""close parenthesis"" → )
+- ""open bracket"" → [, ""close bracket"" → ]
+- ""open quote"" → "", ""close quote"" / ""unquote"" → ""
+- Punctuation commands → actual symbols
+
+CLEANUP:
+- Remove ALL filler words (um, uh, like, you know, basically, so, well, I mean, actually)
+- Remove stuttering and repeated words
+- Fix grammar and make sentences concise
+- Fix homophones and phonetic mistranscriptions
+- Preserve numbers, emails, URLs
 
 OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.";
     }
