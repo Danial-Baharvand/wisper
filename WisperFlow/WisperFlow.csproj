@@ -12,6 +12,8 @@
     <Version>1.0.0</Version>
     <Authors>WisperFlow</Authors>
     <Description>Push-to-talk dictation app using OpenAI Whisper</Description>
+    <!-- Allow multiple native DLL variants (LLamaSharp has avx/avx2/avx512/noavx variants) -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,8 +31,8 @@
     <!-- Intel hardware acceleration (CPU/iGPU) via OpenVINO -->
     <PackageReference Include="Whisper.net.Runtime.OpenVino" Version="1.7.0" />
     <!-- Local LLM for offline polish -->
-    <PackageReference Include="LLamaSharp" Version="0.19.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.19.0" />
+    <PackageReference Include="LLamaSharp" Version="0.25.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.25.0" />
   </ItemGroup>
 
   <ItemGroup>

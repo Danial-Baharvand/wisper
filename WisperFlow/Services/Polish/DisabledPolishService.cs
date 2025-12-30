@@ -13,6 +13,9 @@ public class DisabledPolishService : IPolishService
     public Task<string> PolishAsync(string rawText, bool notesMode = false,
         CancellationToken cancellationToken = default) => Task.FromResult(rawText);
 
+    public Task<string> TransformAsync(string originalText, string command,
+        CancellationToken cancellationToken = default) => Task.FromResult(originalText);
+
     public void Dispose() { }
 }
 

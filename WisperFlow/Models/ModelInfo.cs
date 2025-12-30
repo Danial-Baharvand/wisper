@@ -12,6 +12,10 @@ public class ModelInfo
     public string FileName { get; init; } = "";
     public string PromptTemplate { get; init; } = "default";
     
+    // Inference parameters
+    public float Temperature { get; init; } = 0.2f;
+    public float RepeatPenalty { get; init; } = 1.08f;
+    
     public string SizeFormatted => FormatSize(SizeBytes);
     
     private static string FormatSize(long bytes)
@@ -238,6 +242,16 @@ public static class ModelCatalog
         SizeBytes = 0
     };
     
+    public static readonly ModelInfo OpenAIGpt5Mini = new()
+    {
+        Id = "openai-gpt5-mini",
+        Name = "GPT-5 Mini (API)",
+        Description = "Latest GPT-5, balanced speed & quality",
+        Type = ModelType.LLM,
+        Source = ModelSource.OpenAI,
+        SizeBytes = 0
+    };
+    
     public static readonly ModelInfo PolishDisabled = new()
     {
         Id = "polish-disabled",
@@ -249,61 +263,6 @@ public static class ModelCatalog
     };
     
     // Working local models - verified URLs
-    public static readonly ModelInfo TinyLlama = new()
-    {
-        Id = "tinyllama-1b",
-        Name = "TinyLlama 1.1B",
-        Description = "Small, CPU-friendly (1.1B params)",
-        Type = ModelType.LLM,
-        Source = ModelSource.Local,
-        SizeBytes = 670_000_000,
-        DownloadUrl = "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-        FileName = "tinyllama-1.1b-q4.gguf",
-        PromptTemplate = "tinyllama"
-    };
-    
-    public static readonly ModelInfo Gemma2B = new()
-    {
-        Id = "gemma-2b",
-        Name = "Gemma 1 (2B)",
-        Description = "Google's original Gemma, good quality (2B params)",
-        Type = ModelType.LLM,
-        Source = ModelSource.Local,
-        SizeBytes = 1_500_000_000,
-        DownloadUrl = "https://huggingface.co/lmstudio-ai/gemma-2b-it-GGUF/resolve/main/gemma-2b-it-q4_k_m.gguf",
-        FileName = "gemma-2b-q4.gguf",
-        PromptTemplate = "gemma"
-    };
-    
-    public static readonly ModelInfo Gemma2_2B = new()
-    {
-        Id = "gemma2-2b",
-        Name = "Gemma 2 (2B)",
-        Description = "Google's Gemma 2, improved quality (2B params)",
-        Type = ModelType.LLM,
-        Source = ModelSource.Local,
-        SizeBytes = 1_600_000_000,
-        DownloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-        FileName = "gemma-2-2b-q4.gguf",
-        PromptTemplate = "gemma2"
-    };
-    
-    public static readonly ModelInfo Gemma2_9B = new()
-    {
-        Id = "gemma2-9b",
-        Name = "Gemma 2 (9B)",
-        Description = "High quality, needs 8GB+ RAM (9B params)",
-        Type = ModelType.LLM,
-        Source = ModelSource.Local,
-        SizeBytes = 5_500_000_000,
-        DownloadUrl = "https://huggingface.co/bartowski/gemma-2-9b-it-GGUF/resolve/main/gemma-2-9b-it-Q4_K_M.gguf",
-        FileName = "gemma-2-9b-q4.gguf",
-        PromptTemplate = "gemma2"
-    };
-    
-    // Note: Gemma 3 1B uses gemma3_text architecture which is not yet supported by LLamaSharp
-    // Keeping Gemma 2 2B as the smallest fast option instead
-    
     public static readonly ModelInfo Gemma3_4B = new()
     {
         Id = "gemma3-4b",
@@ -344,6 +303,83 @@ public static class ModelCatalog
         PromptTemplate = "openchat"
     };
     
+    // ===== NEW 2024/2025 MODELS =====
+    
+    public static readonly ModelInfo Qwen25_3B = new()
+    {
+        Id = "qwen2.5-3b",
+        Name = "Qwen 2.5 (3B) ⭐",
+        Description = "Best overall quality (3B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 2_100_000_000,
+        DownloadUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf",
+        FileName = "qwen2.5-3b-instruct-q4.gguf",
+        PromptTemplate = "qwen2",
+        Temperature = 0.2f,
+        RepeatPenalty = 1.08f
+    };
+    
+    public static readonly ModelInfo Qwen3_1B = new()
+    {
+        Id = "qwen3-1.7b",
+        Name = "Qwen 3 (1.7B) ⭐",
+        Description = "Best speed/quality balance (1.7B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 1_300_000_000,
+        DownloadUrl = "https://huggingface.co/lm-kit/qwen-3-1.7b-instruct-gguf/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+        FileName = "qwen3-1.7b-instruct-q4.gguf",
+        PromptTemplate = "qwen3",
+        Temperature = 0.2f,
+        RepeatPenalty = 1.2f  // Higher penalty for Qwen3 quantized
+    };
+    
+    public static readonly ModelInfo Gemma2_2B = new()
+    {
+        Id = "gemma2-2b",
+        Name = "Gemma 2 (2B)",
+        Description = "Good writer, Google (2B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 1_600_000_000,
+        DownloadUrl = "https://huggingface.co/unsloth/gemma-2-it-GGUF/resolve/main/gemma-2-2b-it.q4_k_m.gguf",
+        FileName = "gemma-2-2b-it-q4.gguf",
+        PromptTemplate = "gemma2",
+        Temperature = 0.2f,
+        RepeatPenalty = 1.15f  // Gemma needs higher repeat penalty
+    };
+    
+    public static readonly ModelInfo Llama32_3B = new()
+    {
+        Id = "llama3.2-3b",
+        Name = "Llama 3.2 (3B)",
+        Description = "Strong generalist (3B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 2_000_000_000,
+        DownloadUrl = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        FileName = "llama-3.2-3b-instruct-q4.gguf",
+        PromptTemplate = "llama3",
+        Temperature = 0.2f,
+        RepeatPenalty = 1.08f
+    };
+    
+    public static readonly ModelInfo SmolLM2_1B = new()
+    {
+        Id = "smollm2-1.7b",
+        Name = "SmolLM2 (1.7B)",
+        Description = "Tiny & fast (1.7B params)",
+        Type = ModelType.LLM,
+        Source = ModelSource.Local,
+        SizeBytes = 1_100_000_000,
+        DownloadUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf",
+        FileName = "smollm2-1.7b-instruct-q4.gguf",
+        PromptTemplate = "smollm",
+        Temperature = 0.2f,
+        RepeatPenalty = 1.08f
+    };
+    
     public static IReadOnlyList<ModelInfo> WhisperModels { get; } = new[]
     {
         OpenAIWhisper,
@@ -359,7 +395,14 @@ public static class ModelCatalog
     
     public static IReadOnlyList<ModelInfo> LLMModels { get; } = new[]
     {
-        OpenAIGpt4oMini, PolishDisabled, TinyLlama, Gemma2B, Gemma2_2B, Gemma2_9B, Gemma3_4B, Mistral7BInstruct, OpenChat35
+        // Disabled option (first in list)
+        PolishDisabled,
+        // Cloud models (API)
+        OpenAIGpt5Mini, OpenAIGpt4oMini, 
+        // Best local models (2024/2025)
+        Qwen25_3B, Qwen3_1B, Gemma2_2B, Llama32_3B, SmolLM2_1B,
+        // Other local models
+        Gemma3_4B, Mistral7BInstruct, OpenChat35
     };
     
     public static ModelInfo? GetById(string id) =>

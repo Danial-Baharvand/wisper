@@ -45,6 +45,25 @@ public partial class App : Application
         _logger.LogInformation("=== WisperFlow starting up ===");
         _logger.LogInformation("Log file: {LogPath}", LogFilePath);
 
+        // Check for test mode
+        if (e.Args.Length > 0 && e.Args[0] == "--test-polish")
+        {
+            _ = RunPolishTests();
+            return;
+        }
+        
+        if (e.Args.Length > 0 && e.Args[0] == "--test-llm")
+        {
+            _ = RunLLMTests();
+            return;
+        }
+        
+        if (e.Args.Length > 0 && e.Args[0] == "--benchmark")
+        {
+            _ = RunBenchmark();
+            return;
+        }
+        
         try
         {
             InitializeServices();
@@ -57,6 +76,33 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
+    }
+    
+    private async Task RunPolishTests()
+    {
+        _logger!.LogInformation("Running polish model tests...");
+        var modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
+        await PolishModelTester.RunAllTests(_loggerFactory, modelManager);
+        _logger.LogInformation("Tests complete. Check log file.");
+        Shutdown(0);
+    }
+    
+    private async Task RunLLMTests()
+    {
+        _logger!.LogInformation("Running LLM tests...");
+        var modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
+        await LocalLLMTests.RunAllTests(_loggerFactory, modelManager);
+        _logger.LogInformation("LLM tests complete. Check log file.");
+        Shutdown(0);
+    }
+    
+    private async Task RunBenchmark()
+    {
+        _logger!.LogInformation("Running model benchmarks...");
+        var modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
+        await ModelBenchmark.RunBenchmark(_loggerFactory!, modelManager);
+        _logger.LogInformation("Benchmark complete. Check log file.");
+        Shutdown(0);
     }
     
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -109,7 +155,7 @@ public partial class App : Application
     {
         _settingsManager = new SettingsManager(_loggerFactory!.CreateLogger<SettingsManager>());
         var settings = _settingsManager.LoadSettings();
-        
+
         _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
         _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager);
         
@@ -117,19 +163,19 @@ public partial class App : Application
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());
         _textInjector = new TextInjector(_loggerFactory!.CreateLogger<TextInjector>());
         _overlayWindow = new OverlayWindow();
-        
+
         _orchestrator = new DictationOrchestrator(
-            _hotkeyManager, 
-            _audioRecorder, 
-            _textInjector, 
-            _overlayWindow, 
+            _hotkeyManager,
+            _audioRecorder,
+            _textInjector,
+            _overlayWindow,
             _settingsManager,
             _serviceFactory,
             _loggerFactory!.CreateLogger<DictationOrchestrator>());
-        
+
         _trayIconManager = new TrayIconManager(_settingsManager, _orchestrator,
             _loggerFactory!.CreateLogger<TrayIconManager>());
-        
+
         _orchestrator.ApplySettings(settings);
         _hotkeyManager.RegisterHotkey(settings.HotkeyModifiers, settings.HotkeyKey);
         

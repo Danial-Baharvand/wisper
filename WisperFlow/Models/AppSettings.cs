@@ -71,6 +71,23 @@ public class AppSettings
     /// Selected polish/LLM model ID.
     /// </summary>
     public string PolishModelId { get; set; } = "openai-gpt4o-mini";
+
+    // ===== Command Mode Settings =====
+    
+    /// <summary>
+    /// The modifier keys for command mode hotkey (default: Ctrl+Win+Alt).
+    /// </summary>
+    public HotkeyModifiers CommandHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Win | HotkeyModifiers.Alt;
+
+    /// <summary>
+    /// Whether command mode is enabled.
+    /// </summary>
+    public bool CommandModeEnabled { get; set; } = true;
+
+    /// <summary>
+    /// The AI service to query when no text is selected (ChatGPT, Gemini, Perplexity).
+    /// </summary>
+    public string CommandModeSearchEngine { get; set; } = "ChatGPT";
 }
 
 /// <summary>

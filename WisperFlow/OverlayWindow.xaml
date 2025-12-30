@@ -9,6 +9,8 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
+        Focusable="False"
+        ShowActivated="False"
         WindowStartupLocation="Manual">
     
     <Window.Resources>

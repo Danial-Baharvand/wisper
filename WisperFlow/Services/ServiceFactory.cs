@@ -47,7 +47,7 @@ public class ServiceFactory
         
         if (model == null || model.Source == ModelSource.OpenAI)
         {
-            return new OpenAIPolishService(_loggerFactory.CreateLogger<OpenAIPolishService>());
+            return new OpenAIPolishService(_loggerFactory.CreateLogger<OpenAIPolishService>(), modelId);
         }
 
         if (model.Id == "polish-disabled")

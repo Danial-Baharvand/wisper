@@ -39,6 +39,7 @@ public partial class SettingsWindow : Window
         PopulateMicrophones();
         PopulateLanguages();
         PopulateModels();
+        PopulateSearchEngines();
         UpdateApiKeyStatus();
     }
 
@@ -46,6 +47,9 @@ public partial class SettingsWindow : Window
     {
         // Hotkey
         HotkeyTextBox.Text = FormatHotkey(_settings.HotkeyModifiers);
+
+        // Command mode
+        CommandModeCheckBox.IsChecked = _settings.CommandModeEnabled;
 
         // Polish settings
         PolishCheckBox.IsChecked = _settings.PolishOutput;
@@ -56,6 +60,23 @@ public partial class SettingsWindow : Window
         
         // Log path
         LogPathText.Text = $"Log: {App.LogFilePath}";
+    }
+
+    private void PopulateSearchEngines()
+    {
+        SearchEngineComboBox.Items.Clear();
+        
+        foreach (var service in BrowserQueryService.AvailableServices)
+        {
+            var item = new ComboBoxItem { Content = service, Tag = service };
+            SearchEngineComboBox.Items.Add(item);
+            
+            if (_settings.CommandModeSearchEngine == service)
+                SearchEngineComboBox.SelectedItem = item;
+        }
+        
+        if (SearchEngineComboBox.SelectedItem == null)
+            SearchEngineComboBox.SelectedIndex = 0;
     }
 
     private void PopulateMicrophones()
@@ -269,7 +290,7 @@ public partial class SettingsWindow : Window
     {
         _isCapturingHotkey = true;
         _capturedModifiers = HotkeyModifiers.None;
-        HotkeyTextBox.Text = "Press modifier keys...";
+        HotkeyTextBox.Text = "Hold modifier keys, then release...";
     }
 
     private void HotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
@@ -287,9 +308,8 @@ public partial class SettingsWindow : Window
         if (!_isCapturingHotkey) return;
 
         e.Handled = true;
-        _capturedModifiers = HotkeyModifiers.None;
-
-        // Check modifier keys
+        
+        // Accumulate modifier keys (don't reset on each keydown)
         if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
             _capturedModifiers |= HotkeyModifiers.Control;
         if (Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt))
@@ -299,12 +319,32 @@ public partial class SettingsWindow : Window
         if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin))
             _capturedModifiers |= HotkeyModifiers.Win;
 
+        // Update display while holding
         if (_capturedModifiers != HotkeyModifiers.None)
         {
-            HotkeyTextBox.Text = FormatHotkey(_capturedModifiers);
+            HotkeyTextBox.Text = FormatHotkey(_capturedModifiers) + " (release to confirm)";
+        }
+    }
+
+    private void HotkeyTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (!_isCapturingHotkey) return;
+
+        e.Handled = true;
+
+        // Check if ALL modifier keys are now released
+        bool anyModifierPressed = 
+            Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) ||
+            Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt) ||
+            Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ||
+            Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin);
+
+        if (!anyModifierPressed && _capturedModifiers != HotkeyModifiers.None)
+        {
+            // All keys released - confirm the selection
             _settings.HotkeyModifiers = _capturedModifiers;
-            
-            // Clear focus to confirm
+            HotkeyTextBox.Text = FormatHotkey(_capturedModifiers);
+            _isCapturingHotkey = false;
             Keyboard.ClearFocus();
         }
     }
@@ -334,6 +374,11 @@ public partial class SettingsWindow : Window
         _settings.PolishOutput = PolishCheckBox.IsChecked ?? false;
         _settings.NotesMode = NotesModeCheckBox.IsChecked ?? false;
         _settings.LaunchAtStartup = StartupCheckBox.IsChecked ?? false;
+        
+        // Command mode
+        _settings.CommandModeEnabled = CommandModeCheckBox.IsChecked ?? true;
+        if (SearchEngineComboBox.SelectedItem is ComboBoxItem searchItem)
+            _settings.CommandModeSearchEngine = searchItem.Tag?.ToString() ?? "ChatGPT";
 
         // Microphone
         if (MicrophoneComboBox.SelectedItem is ComboBoxItem micItem)

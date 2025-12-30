@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Windows.Interop;
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
 
@@ -7,32 +6,26 @@ namespace WisperFlow.Services;
 
 /// <summary>
 /// Manages global hotkey registration and low-level keyboard hooks for press/release detection.
-/// Uses a combination of RegisterHotKey for the press and low-level hooks for release detection.
+/// Uses polling with GetAsyncKeyState for reliable modifier detection.
 /// </summary>
 public class HotkeyManager : IDisposable
 {
     private readonly ILogger<HotkeyManager> _logger;
-    private IntPtr _hookId = IntPtr.Zero;
-    private LowLevelKeyboardProc? _hookCallback;
-    private HwndSource? _hwndSource;
-    private IntPtr _windowHandle;
-    private bool _isRecording;
     private HotkeyModifiers _currentModifiers;
-    private int _currentKey;
+    private HotkeyModifiers _commandModifiers;
     private bool _disposed;
-
-    // Track which modifier keys are currently pressed
-    private bool _ctrlPressed;
-    private bool _winPressed;
-    private bool _altPressed;
-    private bool _shiftPressed;
-
-    private const int WH_KEYBOARD_LL = 13;
-    private const int WM_KEYDOWN = 0x0100;
-    private const int WM_KEYUP = 0x0101;
-    private const int WM_SYSKEYDOWN = 0x0104;
-    private const int WM_SYSKEYUP = 0x0105;
-    private const int WM_HOTKEY = 0x0312;
+    private bool _commandModeEnabled = true;
+    
+    // Polling-based detection
+    private System.Threading.Timer? _pollTimer;
+    private bool _isRecording;
+    private bool _isCommandMode;
+    private DateTime _modifiersFirstDetected;
+    private DateTime _releaseFirstDetected;  // Track when release started
+    private const int PollIntervalMs = 15;       // Fast polling
+    private const int CommandHoldThresholdMs = 0;  // Command mode is instant (most specific)
+    private const int RegularHoldThresholdMs = 60; // Regular mode waits a bit (in case user is pressing more keys)
+    private const int ReleaseThresholdMs = 80;   // Time keys must be released before stopping
 
     // Virtual key codes
     private const int VK_LCONTROL = 0xA2;
@@ -46,155 +39,228 @@ public class HotkeyManager : IDisposable
 
     public event EventHandler? RecordStart;
     public event EventHandler? RecordStop;
+    public event EventHandler? CommandRecordStart;
+    public event EventHandler? CommandRecordStop;
 
     public HotkeyManager(ILogger<HotkeyManager> logger)
     {
         _logger = logger;
     }
 
-    /// <summary>
-    /// Register the hotkey combination to listen for.
-    /// </summary>
     public void RegisterHotkey(HotkeyModifiers modifiers, int key)
     {
         _currentModifiers = modifiers;
-        _currentKey = key;
-
-        // Install low-level keyboard hook for press/release detection
-        InstallHook();
+        
+        // Start polling timer
+        _pollTimer?.Dispose();
+        _pollTimer = new System.Threading.Timer(PollKeyStates, null, 0, PollIntervalMs);
 
         _logger.LogInformation("Hotkey registered: Modifiers={Modifiers}, Key={Key}", modifiers, key);
     }
 
-    /// <summary>
-    /// Unregister the current hotkey.
-    /// </summary>
+    public void RegisterCommandHotkey(HotkeyModifiers modifiers, bool enabled)
+    {
+        _commandModifiers = modifiers;
+        _commandModeEnabled = enabled;
+        _logger.LogInformation("Command hotkey registered: Modifiers={Modifiers}, Enabled={Enabled}", modifiers, enabled);
+    }
+
     public void UnregisterHotkey()
     {
-        UninstallHook();
+        _pollTimer?.Dispose();
+        _pollTimer = null;
         _logger.LogInformation("Hotkey unregistered");
     }
 
-    private void InstallHook()
+    private void PollKeyStates(object? state)
     {
-        if (_hookId != IntPtr.Zero) return;
+        if (_disposed) return;
 
-        _hookCallback = HookCallback;
-        using var curProcess = System.Diagnostics.Process.GetCurrentProcess();
-        using var curModule = curProcess.MainModule!;
-        _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _hookCallback, 
-            GetModuleHandle(curModule.ModuleName), 0);
-
-        if (_hookId == IntPtr.Zero)
+        try
         {
-            var error = Marshal.GetLastWin32Error();
-            _logger.LogError("Failed to install keyboard hook, error code: {Error}", error);
-        }
-        else
-        {
-            _logger.LogDebug("Keyboard hook installed");
-        }
-    }
+            // Get current state of all modifier keys using GetAsyncKeyState
+            bool ctrlPressed = IsKeyPressed(VK_LCONTROL) || IsKeyPressed(VK_RCONTROL);
+            bool winPressed = IsKeyPressed(VK_LWIN) || IsKeyPressed(VK_RWIN);
+            bool altPressed = IsKeyPressed(VK_LMENU) || IsKeyPressed(VK_RMENU);
+            bool shiftPressed = IsKeyPressed(VK_LSHIFT) || IsKeyPressed(VK_RSHIFT);
 
-    private void UninstallHook()
-    {
-        if (_hookId != IntPtr.Zero)
-        {
-            UnhookWindowsHookEx(_hookId);
-            _hookId = IntPtr.Zero;
-            _logger.LogDebug("Keyboard hook uninstalled");
-        }
-    }
+            // Build current modifiers
+            HotkeyModifiers currentModifiers = HotkeyModifiers.None;
+            if (ctrlPressed) currentModifiers |= HotkeyModifiers.Control;
+            if (winPressed) currentModifiers |= HotkeyModifiers.Win;
+            if (altPressed) currentModifiers |= HotkeyModifiers.Alt;
+            if (shiftPressed) currentModifiers |= HotkeyModifiers.Shift;
 
-    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
-        {
-            int vkCode = Marshal.ReadInt32(lParam);
-            bool isKeyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
-            bool isKeyUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
+            // Check for matches
+            bool commandMatch = _commandModeEnabled && MatchesModifiers(currentModifiers, _commandModifiers);
+            bool regularMatch = MatchesModifiers(currentModifiers, _currentModifiers);
 
-            // Track modifier key states
-            if (isKeyDown)
+            // Handle state transitions
+            if (_isRecording)
             {
-                UpdateModifierState(vkCode, true);
+                // Currently recording - check if should stop
+                // For command mode, be more lenient - just check if ANY of the required keys are still held
+                bool shouldContinue;
+                if (_isCommandMode)
+                {
+                    // For command mode with multiple keys, use lenient matching
+                    // Continue as long as at least 2 of the 3 required keys are still pressed
+                    shouldContinue = HasMostModifiers(currentModifiers, _commandModifiers);
+                }
+                else
+                {
+                    shouldContinue = regularMatch;
+                }
+                
+                if (shouldContinue)
+                {
+                    // Keys still held - reset release timer
+                    _releaseFirstDetected = DateTime.MinValue;
+                }
+                else
+                {
+                    // Keys released - check if sustained release
+                    if (_releaseFirstDetected == DateTime.MinValue)
+                    {
+                        _releaseFirstDetected = DateTime.UtcNow;
+                    }
+                    else if ((DateTime.UtcNow - _releaseFirstDetected).TotalMilliseconds >= ReleaseThresholdMs)
+                    {
+                        // Sustained release - stop recording
+                        var wasCommandMode = _isCommandMode;
+                        _isRecording = false;
+                        _isCommandMode = false;
+                        _releaseFirstDetected = DateTime.MinValue;
+
+                        if (wasCommandMode)
+                        {
+                            _logger.LogDebug("Command hotkey released - stopping command recording");
+                            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                            {
+                                CommandRecordStop?.Invoke(this, EventArgs.Empty);
+                            });
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Hotkey released - stopping recording");
+                            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                            {
+                                RecordStop?.Invoke(this, EventArgs.Empty);
+                            });
+                        }
+                    }
+                }
             }
-            else if (isKeyUp)
+            else
             {
-                UpdateModifierState(vkCode, false);
+                // Not recording - check if should start
+                if (commandMatch)
+                {
+                    // Command mode - start instantly (it's the most specific, no conflicts possible)
+                    _isRecording = true;
+                    _isCommandMode = true;
+                    _releaseFirstDetected = DateTime.MinValue;
+                    _modifiersFirstDetected = DateTime.MinValue;
+                    _logger.LogDebug("Command hotkey pressed - starting command recording");
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                    {
+                        CommandRecordStart?.Invoke(this, EventArgs.Empty);
+                    });
+                }
+                else if (regularMatch)
+                {
+                    // Regular mode - wait a bit in case user is adding more modifiers
+                    if (_modifiersFirstDetected == DateTime.MinValue)
+                    {
+                        _modifiersFirstDetected = DateTime.UtcNow;
+                    }
+                    else if ((DateTime.UtcNow - _modifiersFirstDetected).TotalMilliseconds >= RegularHoldThresholdMs)
+                    {
+                        _isRecording = true;
+                        _isCommandMode = false;
+                        _releaseFirstDetected = DateTime.MinValue;
+                        _logger.LogDebug("Hotkey pressed - starting recording");
+                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                        {
+                            RecordStart?.Invoke(this, EventArgs.Empty);
+                        });
+                    }
+                }
+                else
+                {
+                    // No match - reset hold timer
+                    _modifiersFirstDetected = DateTime.MinValue;
+                }
             }
-
-            // Check if our hotkey combination is matched
-            CheckHotkeyState();
         }
-
-        return CallNextHookEx(_hookId, nCode, wParam, lParam);
-    }
-
-    private void UpdateModifierState(int vkCode, bool pressed)
-    {
-        switch (vkCode)
+        catch (Exception ex)
         {
-            case VK_LCONTROL:
-            case VK_RCONTROL:
-                _ctrlPressed = pressed;
-                break;
-            case VK_LWIN:
-            case VK_RWIN:
-                _winPressed = pressed;
-                break;
-            case VK_LMENU:
-            case VK_RMENU:
-                _altPressed = pressed;
-                break;
-            case VK_LSHIFT:
-            case VK_RSHIFT:
-                _shiftPressed = pressed;
-                break;
+            _logger.LogError(ex, "Error polling key states");
         }
     }
 
-    private void CheckHotkeyState()
+    /// <summary>
+    /// Check if at least N-1 of the required modifiers are pressed (lenient matching for release detection)
+    /// </summary>
+    private static bool HasMostModifiers(HotkeyModifiers current, HotkeyModifiers required)
     {
-        bool modifiersMatch = true;
+        int requiredCount = 0;
+        int matchedCount = 0;
 
-        // Check each required modifier
-        if (_currentModifiers.HasFlag(HotkeyModifiers.Control) && !_ctrlPressed)
-            modifiersMatch = false;
-        if (_currentModifiers.HasFlag(HotkeyModifiers.Win) && !_winPressed)
-            modifiersMatch = false;
-        if (_currentModifiers.HasFlag(HotkeyModifiers.Alt) && !_altPressed)
-            modifiersMatch = false;
-        if (_currentModifiers.HasFlag(HotkeyModifiers.Shift) && !_shiftPressed)
-            modifiersMatch = false;
-
-        // Also verify no extra modifiers are pressed (unless we don't care)
-        if (!_currentModifiers.HasFlag(HotkeyModifiers.Control) && _ctrlPressed)
-            modifiersMatch = false;
-        if (!_currentModifiers.HasFlag(HotkeyModifiers.Win) && _winPressed)
-            modifiersMatch = false;
-        // Allow Alt and Shift to be pressed even if not required
-
-        if (modifiersMatch && !_isRecording)
+        if (required.HasFlag(HotkeyModifiers.Control))
         {
-            // Start recording
-            _isRecording = true;
-            _logger.LogDebug("Hotkey pressed - starting recording");
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-            {
-                RecordStart?.Invoke(this, EventArgs.Empty);
-            });
+            requiredCount++;
+            if (current.HasFlag(HotkeyModifiers.Control)) matchedCount++;
         }
-        else if (!modifiersMatch && _isRecording)
+        if (required.HasFlag(HotkeyModifiers.Win))
         {
-            // Stop recording
-            _isRecording = false;
-            _logger.LogDebug("Hotkey released - stopping recording");
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-            {
-                RecordStop?.Invoke(this, EventArgs.Empty);
-            });
+            requiredCount++;
+            if (current.HasFlag(HotkeyModifiers.Win)) matchedCount++;
         }
+        if (required.HasFlag(HotkeyModifiers.Alt))
+        {
+            requiredCount++;
+            if (current.HasFlag(HotkeyModifiers.Alt)) matchedCount++;
+        }
+        if (required.HasFlag(HotkeyModifiers.Shift))
+        {
+            requiredCount++;
+            if (current.HasFlag(HotkeyModifiers.Shift)) matchedCount++;
+        }
+
+        // For 3 keys, require at least 2. For 2 keys, require at least 1. For 1 key, require 1.
+        int minRequired = Math.Max(1, requiredCount - 1);
+        return matchedCount >= minRequired;
+    }
+
+    private static bool MatchesModifiers(HotkeyModifiers current, HotkeyModifiers required)
+    {
+        if (required == HotkeyModifiers.None) return false;
+        
+        // Check all required modifiers are pressed
+        if (required.HasFlag(HotkeyModifiers.Control) && !current.HasFlag(HotkeyModifiers.Control))
+            return false;
+        if (required.HasFlag(HotkeyModifiers.Win) && !current.HasFlag(HotkeyModifiers.Win))
+            return false;
+        if (required.HasFlag(HotkeyModifiers.Alt) && !current.HasFlag(HotkeyModifiers.Alt))
+            return false;
+        if (required.HasFlag(HotkeyModifiers.Shift) && !current.HasFlag(HotkeyModifiers.Shift))
+            return false;
+
+        // Check no extra modifiers are pressed (except Shift which is always allowed)
+        if (!required.HasFlag(HotkeyModifiers.Control) && current.HasFlag(HotkeyModifiers.Control))
+            return false;
+        if (!required.HasFlag(HotkeyModifiers.Win) && current.HasFlag(HotkeyModifiers.Win))
+            return false;
+        if (!required.HasFlag(HotkeyModifiers.Alt) && current.HasFlag(HotkeyModifiers.Alt))
+            return false;
+
+        return true;
+    }
+
+    private static bool IsKeyPressed(int vk)
+    {
+        return (GetAsyncKeyState(vk) & 0x8000) != 0;
     }
 
     public void Dispose()
@@ -202,29 +268,10 @@ public class HotkeyManager : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        UninstallHook();
-        _hwndSource?.Dispose();
+        _pollTimer?.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    #region Native Methods
-
-    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, 
-        IntPtr hMod, uint dwThreadId);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-    #endregion
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 }
-

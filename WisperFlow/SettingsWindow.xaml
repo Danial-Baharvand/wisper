@@ -57,6 +57,7 @@
                                      IsReadOnly="True"
                                      Cursor="Hand"
                                      PreviewKeyDown="HotkeyTextBox_PreviewKeyDown"
+                                     PreviewKeyUp="HotkeyTextBox_PreviewKeyUp"
                                      GotFocus="HotkeyTextBox_GotFocus"
                                      LostFocus="HotkeyTextBox_LostFocus"/>
                             <TextBlock Grid.Column="1" 
@@ -66,6 +67,35 @@
                                        VerticalAlignment="Center" 
                                        Margin="16,0,0,0"/>
                         </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Command Mode Section -->
+                <TextBlock Text="COMMAND MODE" Style="{StaticResource SettingLabel}"/>
+                <Border Style="{StaticResource CardBorder}">
+                    <StackPanel>
+                        <CheckBox x:Name="CommandModeCheckBox" 
+                                  Style="{StaticResource ModernToggle}"
+                                  Content="Enable command mode (Ctrl+Win+Alt)"
+                                  Margin="0,0,0,12"/>
+                        
+                        <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" 
+                                Padding="12" Margin="60,0,0,12">
+                            <TextBlock TextWrapping="Wrap" FontSize="11">
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">Hold </Run>
+                                <Run Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold">Ctrl+Win+Alt</Run>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}"> and speak a command.</Run>
+                                <LineBreak/>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">• With text selected: transforms the text (e.g., "make this formal")</Run>
+                                <LineBreak/>
+                                <Run Foreground="{StaticResource TextSecondaryBrush}">• No selection: opens query in AI chat</Run>
+                            </TextBlock>
+                        </Border>
+                        
+                        <TextBlock Text="When no text is selected, open in:" 
+                                   Foreground="{StaticResource TextSecondaryBrush}" 
+                                   FontSize="12" Margin="0,4,0,8"/>
+                        <ComboBox x:Name="SearchEngineComboBox" Style="{StaticResource ModernComboBox}" Width="200" HorizontalAlignment="Left"/>
                     </StackPanel>
                 </Border>
                 
