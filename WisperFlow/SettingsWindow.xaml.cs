@@ -475,6 +475,109 @@ public partial class SettingsWindow : Window
             PopulateModels();
     }
 
+    // ==================== Prompt Editor ====================
+    
+    private void CustomizePrompts_Click(object sender, RoutedEventArgs e)
+    {
+        // Hide all sections and show prompt editor
+        SectionGeneral.Visibility = Visibility.Collapsed;
+        SectionAudio.Visibility = Visibility.Collapsed;
+        SectionTranscription.Visibility = Visibility.Collapsed;
+        SectionDeepgram.Visibility = Visibility.Collapsed;
+        SectionPolish.Visibility = Visibility.Collapsed;
+        SectionCodeDictation.Visibility = Visibility.Collapsed;
+        SectionCommand.Visibility = Visibility.Collapsed;
+        SectionApiKeys.Visibility = Visibility.Collapsed;
+        SectionPromptEditor.Visibility = Visibility.Visible;
+        
+        // Load the appropriate prompt based on selected tab
+        LoadCurrentPrompt();
+    }
+    
+    private void PromptEditorBack_Click(object sender, RoutedEventArgs e)
+    {
+        // Hide prompt editor and go back to Polish section
+        SectionPromptEditor.Visibility = Visibility.Collapsed;
+        SectionPolish.Visibility = Visibility.Visible;
+    }
+    
+    private void PromptModeTab_Changed(object sender, RoutedEventArgs e)
+    {
+        LoadCurrentPrompt();
+    }
+    
+    private void LoadCurrentPrompt()
+    {
+        if (TypingModeTab == null || NotesModeTab == null || PromptEditorTextBox == null) return;
+        
+        if (TypingModeTab.IsChecked == true)
+        {
+            // Load typing mode prompt
+            var customPrompt = _settings.CustomTypingPrompt;
+            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
+                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt 
+                : customPrompt;
+            if (PromptModeDescription != null)
+                PromptModeDescription.Text = "Typing mode: Minimal cleanup - punctuation, grammar, self-corrections.";
+        }
+        else
+        {
+            // Load notes mode prompt
+            var customPrompt = _settings.CustomNotesPrompt;
+            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
+                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt 
+                : customPrompt;
+            if (PromptModeDescription != null)
+                PromptModeDescription.Text = "Notes mode: Aggressive cleanup with bullets, headings, and formatting.";
+        }
+    }
+    
+    private void ResetPrompt_Click(object sender, RoutedEventArgs e)
+    {
+        if (TypingModeTab.IsChecked == true)
+        {
+            PromptEditorTextBox.Text = WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt;
+        }
+        else
+        {
+            PromptEditorTextBox.Text = WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt;
+        }
+    }
+    
+    private void SavePrompt_Click(object sender, RoutedEventArgs e)
+    {
+        var currentText = PromptEditorTextBox.Text?.Trim() ?? "";
+        
+        if (TypingModeTab.IsChecked == true)
+        {
+            // Check if it's the default - if so, clear the custom prompt
+            if (currentText == WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt.Trim())
+            {
+                _settings.CustomTypingPrompt = string.Empty;
+            }
+            else
+            {
+                _settings.CustomTypingPrompt = currentText;
+            }
+        }
+        else
+        {
+            // Check if it's the default - if so, clear the custom prompt
+            if (currentText == WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt.Trim())
+            {
+                _settings.CustomNotesPrompt = string.Empty;
+            }
+            else
+            {
+                _settings.CustomNotesPrompt = currentText;
+            }
+        }
+        
+        // Go back to Polish section
+        SectionPromptEditor.Visibility = Visibility.Collapsed;
+        SectionPolish.Visibility = Visibility.Visible;
+    }
+
     private string FormatHotkey(HotkeyModifiers modifiers)
     {
         var parts = new List<string>();

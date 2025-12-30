@@ -13,6 +13,8 @@ public class LocalLLMPolishService : IPolishService
     private readonly ILogger _logger;
     private readonly ModelManager _modelManager;
     private readonly ModelInfo _model;
+    private readonly string? _customTypingPrompt;
+    private readonly string? _customNotesPrompt;
     private LLamaWeights? _weights;
     private LLamaContext? _context;
     private StatelessExecutor? _executor;  // Stateless for clean inference each time
@@ -21,12 +23,28 @@ public class LocalLLMPolishService : IPolishService
 
     public string ModelId => _model.Id;
     public bool IsReady => _isInitialized && _executor != null;
+    
+    /// <summary>
+    /// Gets the effective typing prompt instruction (custom or default).
+    /// </summary>
+    public string TypingPromptInstruction => string.IsNullOrWhiteSpace(_customTypingPrompt) 
+        ? OpenAIPolishService.DefaultTypingPrompt 
+        : _customTypingPrompt;
+    
+    /// <summary>
+    /// Gets the effective notes prompt instruction (custom or default).
+    /// </summary>
+    public string NotesPromptInstruction => string.IsNullOrWhiteSpace(_customNotesPrompt) 
+        ? OpenAIPolishService.DefaultNotesPrompt 
+        : _customNotesPrompt;
 
-    public LocalLLMPolishService(ILogger logger, ModelManager modelManager, ModelInfo model)
+    public LocalLLMPolishService(ILogger logger, ModelManager modelManager, ModelInfo model, string? customTypingPrompt = null, string? customNotesPrompt = null)
     {
         _logger = logger;
         _modelManager = modelManager;
         _model = model;
+        _customTypingPrompt = customTypingPrompt;
+        _customNotesPrompt = customNotesPrompt;
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -92,7 +110,7 @@ public class LocalLLMPolishService : IPolishService
             return BuildSmolLMPrompt(text);
         }
         
-        var instruction = notesMode ? BuildNotesModeInstruction() : BuildTypingModeInstruction();
+        var instruction = notesMode ? NotesPromptInstruction : TypingPromptInstruction;
         
         return _model.PromptTemplate switch
         {

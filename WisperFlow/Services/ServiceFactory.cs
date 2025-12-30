@@ -56,10 +56,17 @@ public class ServiceFactory
     public IPolishService CreatePolishService(string modelId)
     {
         var model = ModelCatalog.GetById(modelId);
+        var settings = _settingsManager.CurrentSettings;
+        var customTypingPrompt = string.IsNullOrWhiteSpace(settings.CustomTypingPrompt) ? null : settings.CustomTypingPrompt;
+        var customNotesPrompt = string.IsNullOrWhiteSpace(settings.CustomNotesPrompt) ? null : settings.CustomNotesPrompt;
         
         if (model == null || model.Source == ModelSource.OpenAI)
         {
-            return new OpenAIPolishService(_loggerFactory.CreateLogger<OpenAIPolishService>(), modelId);
+            return new OpenAIPolishService(
+                _loggerFactory.CreateLogger<OpenAIPolishService>(), 
+                modelId,
+                customTypingPrompt,
+                customNotesPrompt);
         }
 
         if (model.Id == "polish-disabled")
@@ -70,7 +77,9 @@ public class ServiceFactory
         return new LocalLLMPolishService(
             _loggerFactory.CreateLogger<LocalLLMPolishService>(),
             _modelManager,
-            model);
+            model,
+            customTypingPrompt,
+            customNotesPrompt);
     }
 
     public ICodeDictationService CreateCodeDictationService(string modelId)

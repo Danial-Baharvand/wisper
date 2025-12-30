@@ -15,9 +15,14 @@ public class OpenAIPolishService : IPolishService
     private readonly HttpClient _httpClient;
     private readonly string _modelId;
     private readonly string _apiModelName;
+    private readonly string? _customTypingPrompt;
+    private readonly string? _customNotesPrompt;
     private const string Endpoint = "https://api.openai.com/v1/chat/completions";
 
-    private const string TypingPrompt = @"You are a speech-to-text post-processor. Clean up the transcription intelligently.
+    /// <summary>
+    /// Default typing mode prompt - used when no custom prompt is set.
+    /// </summary>
+    public const string DefaultTypingPrompt = @"You are a speech-to-text post-processor. Clean up the transcription intelligently.
 
 SELF-CORRECTIONS (remove the incorrect part, keep the correction):
 - ""I went to the oh actually I drove to the store"" → ""I drove to the store""
@@ -53,7 +58,10 @@ ALSO:
 
 Return ONLY the cleaned text, nothing else.";
 
-    private const string NotesPrompt = @"You are a speech-to-text post-processor for note-taking. Format the transcription as clean notes.
+    /// <summary>
+    /// Default notes mode prompt - used when no custom prompt is set.
+    /// </summary>
+    public const string DefaultNotesPrompt = @"You are a speech-to-text post-processor for note-taking. Format the transcription as clean notes.
 
 SELF-CORRECTIONS (remove the incorrect part, keep the correction):
 - ""The price is fifty oh actually sixty dollars"" → ""The price is sixty dollars""
@@ -80,12 +88,24 @@ Return ONLY the formatted text, nothing else.";
 
     public string ModelId => _modelId;
     public bool IsReady => !string.IsNullOrEmpty(GetApiKey());
+    
+    /// <summary>
+    /// Gets the effective typing prompt (custom or default).
+    /// </summary>
+    public string TypingPrompt => string.IsNullOrWhiteSpace(_customTypingPrompt) ? DefaultTypingPrompt : _customTypingPrompt;
+    
+    /// <summary>
+    /// Gets the effective notes prompt (custom or default).
+    /// </summary>
+    public string NotesPrompt => string.IsNullOrWhiteSpace(_customNotesPrompt) ? DefaultNotesPrompt : _customNotesPrompt;
 
-    public OpenAIPolishService(ILogger logger, string modelId = "openai-gpt4o-mini")
+    public OpenAIPolishService(ILogger logger, string modelId = "openai-gpt4o-mini", string? customTypingPrompt = null, string? customNotesPrompt = null)
     {
         _logger = logger;
         _modelId = modelId;
         _apiModelName = GetApiModelName(modelId);
+        _customTypingPrompt = customTypingPrompt;
+        _customNotesPrompt = customNotesPrompt;
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     }
     

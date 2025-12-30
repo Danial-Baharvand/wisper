@@ -38,6 +38,16 @@ public class AppSettings
     public bool NotesMode { get; set; } = false;
 
     /// <summary>
+    /// Custom prompt for typing mode polish. Empty = use default.
+    /// </summary>
+    public string CustomTypingPrompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Custom prompt for notes mode polish. Empty = use default.
+    /// </summary>
+    public string CustomNotesPrompt { get; set; } = string.Empty;
+
+    /// <summary>
     /// Whether to run at Windows startup.
     /// </summary>
     public bool LaunchAtStartup { get; set; } = false;

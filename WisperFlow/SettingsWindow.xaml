@@ -65,6 +65,35 @@
         <Style x:Key="SmallToggle" TargetType="CheckBox" BasedOn="{StaticResource ModernToggle}">
             <Setter Property="Margin" Value="0,4,0,8"/>
         </Style>
+        
+        <!-- Prompt Mode Tab Style -->
+        <Style x:Key="PromptModeTab" TargetType="RadioButton">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Border" 
+                                Background="{StaticResource TertiaryBrush}" 
+                                CornerRadius="8" 
+                                Padding="16,10"
+                                Cursor="Hand">
+                            <ContentPresenter x:Name="Content" 
+                                              HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Opacity" Value="0.9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+        </Style>
     </Window.Resources>
     
     <Grid>
@@ -310,11 +339,126 @@
                                 
                                 <CheckBox x:Name="NotesModeCheckBox" Style="{StaticResource SmallToggle}"
                                           Content="Notes mode (aggressive cleanup, bullets, headings)"/>
-                                <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="12">
+                                <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,16">
                                     <TextBlock Text="Notes mode removes filler words, creates bullet lists, and formats headings."
                                                Foreground="{StaticResource TextSecondaryBrush}"
                                                FontSize="11" TextWrapping="Wrap"/>
                                 </Border>
+                                
+                                <!-- Customize Prompts Button -->
+                                <Button x:Name="CustomizePromptsButton" 
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalAlignment="Left"
+                                        Padding="20,12"
+                                        Click="CustomizePrompts_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="✏️" FontSize="14" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Customize AI Prompts"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                    
+                    <!-- Prompt Editor Section (Hidden by default) -->
+                    <StackPanel x:Name="SectionPromptEditor" Visibility="Collapsed">
+                        <!-- Header with back button -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- Back Arrow Button -->
+                            <Button x:Name="PromptEditorBackButton" 
+                                    Grid.Column="0"
+                                    Click="PromptEditorBack_Click"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Padding="12,10"
+                                    Margin="0,0,12,0">
+                                <Polygon Points="0,6 10,0 10,12" 
+                                         Fill="{StaticResource TextSecondaryBrush}"
+                                         Stretch="Uniform"
+                                         Width="10" Height="12"/>
+                            </Button>
+                            
+                            <TextBlock Grid.Column="1" Text="Customize AI Prompts" 
+                                       Style="{StaticResource SectionTitle}"
+                                       VerticalAlignment="Center" Margin="0"/>
+                        </Grid>
+                        
+                        <Border Style="{StaticResource CardBorder}">
+                            <StackPanel>
+                                <!-- Mode Selector Tabs -->
+                                <TextBlock Text="Select Mode to Edit" Style="{StaticResource OptionLabel}" Margin="0,0,0,8"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                                    <RadioButton x:Name="TypingModeTab" 
+                                                 Content="Typing Mode" 
+                                                 GroupName="PromptMode"
+                                                 IsChecked="True"
+                                                 Style="{StaticResource PromptModeTab}"
+                                                 Checked="PromptModeTab_Changed"/>
+                                    <RadioButton x:Name="NotesModeTab" 
+                                                 Content="Notes Mode" 
+                                                 GroupName="PromptMode"
+                                                 Style="{StaticResource PromptModeTab}"
+                                                 Checked="PromptModeTab_Changed"
+                                                 Margin="8,0,0,0"/>
+                                </StackPanel>
+                                
+                                <!-- Description -->
+                                <TextBlock x:Name="PromptModeDescription"
+                                           Text="Typing mode: Minimal cleanup - punctuation, grammar, self-corrections."
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="11" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                
+                                <!-- Prompt Editor TextBox -->
+                                <TextBox x:Name="PromptEditorTextBox"
+                                         Style="{StaticResource ModernTextBox}"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         VerticalScrollBarVisibility="Auto"
+                                         Height="300"
+                                         FontFamily="Consolas, Courier New, monospace"
+                                         FontSize="12"
+                                         Padding="12"/>
+                                
+                                <!-- Action Buttons -->
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <!-- Reset to Default -->
+                                    <Button x:Name="ResetPromptButton" 
+                                            Grid.Column="0"
+                                            Click="ResetPrompt_Click"
+                                            Background="Transparent"
+                                            BorderBrush="{StaticResource BorderBrush}"
+                                            BorderThickness="1"
+                                            Foreground="{StaticResource TextSecondaryBrush}"
+                                            Padding="16,10"
+                                            Cursor="Hand">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="↺" FontSize="14" Margin="0,0,6,0"/>
+                                            <TextBlock Text="Reset to Default"/>
+                                        </StackPanel>
+                                    </Button>
+                                    
+                                    <!-- Save Button -->
+                                    <Button x:Name="SavePromptButton" 
+                                            Grid.Column="2"
+                                            Click="SavePrompt_Click"
+                                            Style="{StaticResource ModernButton}"
+                                            Padding="24,10">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="💾" FontSize="14" Margin="0,0,8,0"/>
+                                            <TextBlock Text="Save &amp; Go Back"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
                             </StackPanel>
                         </Border>
                     </StackPanel>
