@@ -294,3 +294,129 @@
   "utterances": false
 }
 2025-12-30 14:12:10.669 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:22:07.258 [Information] DeepgramHttpClientOptions: OnPrem: False
+2025-12-30 14:22:07.264 [Information] DeepgramHttpClientOptions: APIVersion: v1
+2025-12-30 14:22:07.268 [Information] DeepgramHttpClientOptions: REST BaseAddress does not contain API version: api.deepgram.com
+2025-12-30 14:22:07.268 [Information] DeepgramHttpClientOptions: BaseAddress contains no protocol: api.deepgram.com/v1
+2025-12-30 14:22:07.268 [Information] DeepgramHttpClientOptions: BaseAddress: https://api.deepgram.com/v1
+2025-12-30 14:22:07.270 [Information] HttpClientFactory.Create: HttpClient ID: DEEPGRAM_HTTP_CLIENT
+2025-12-30 14:22:07.287 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:22:07.303 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:22:08.556 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:22:53.973 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:22:53.978 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:22:55.555 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:23:02.395 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:23:02.395 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:23:03.715 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:23:11.032 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:23:11.033 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:23:12.360 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:23:30.568 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:23:30.574 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:23:31.913 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:23:38.452 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:23:38.452 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:23:39.862 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:23:56.108 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:23:56.111 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:23:57.821 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2025-12-30 14:24:17.823 [Information] TranscribeFile: source: System.IO.MemoryStream
+2025-12-30 14:24:17.823 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": true,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": true,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2025-12-30 14:24:18.750 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded

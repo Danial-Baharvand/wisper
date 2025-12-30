@@ -22,11 +22,16 @@ public class DeepgramStreamingService : ITranscriptionService
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _receiveCts;
     private readonly ConcurrentQueue<string> _transcriptParts = new();
+    private readonly ConcurrentQueue<byte[]> _audioBuffer = new();  // Buffer for audio before WebSocket connects
     private Task? _receiveTask;
+    private Task? _connectTask;  // Track connection task
     private bool _isStreaming;
+    private bool _isConnected;  // Track if WebSocket is actually connected
     
     public string ModelId => _model.Id;
     public bool IsReady => !string.IsNullOrEmpty(GetApiKey());
+    public bool IsConnected => _isConnected;
+    public bool IsConnecting => _connectTask != null && !_connectTask.IsCompleted;
 
     public DeepgramStreamingService(ILogger logger, AppModelInfo model, AppSettings settings)
     {
@@ -56,15 +61,20 @@ public class DeepgramStreamingService : ITranscriptionService
     }
 
     /// <summary>
-    /// Start streaming transcription - call this when recording starts.
+    /// Start streaming transcription - returns immediately, connection happens in background.
+    /// Audio chunks sent before connection completes are buffered and sent once connected.
     /// </summary>
-    public async Task StartStreamingAsync(string? language = null, CancellationToken cancellationToken = default)
+    public void StartStreamingAsync(string? language = null, CancellationToken cancellationToken = default)
     {
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new InvalidOperationException("Deepgram API key not configured.");
 
+        // Clear state
         _transcriptParts.Clear();
+        while (_audioBuffer.TryDequeue(out _)) { }  // Clear buffer
+        _isConnected = false;
+        _isStreaming = true;  // Mark as streaming immediately so audio starts buffering
         _receiveCts = new CancellationTokenSource();
 
         // Build WebSocket URL with parameters
@@ -119,34 +129,70 @@ public class DeepgramStreamingService : ITranscriptionService
         _webSocket = new ClientWebSocket();
         _webSocket.Options.SetRequestHeader("Authorization", $"Token {apiKey}");
         
+        // Start connection in background - don't block!
+        _connectTask = ConnectAndFlushBufferAsync(url, cancellationToken);
+        
+        _logger.LogInformation("Deepgram streaming initiated (connecting in background): {Model}", _deepgramModel);
+    }
+    
+    /// <summary>
+    /// Connect to WebSocket and flush any buffered audio once connected.
+    /// </summary>
+    private async Task ConnectAndFlushBufferAsync(string url, CancellationToken cancellationToken)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            _logger.LogInformation("Connecting to Deepgram streaming API: {Model}", _deepgramModel);
-            await _webSocket.ConnectAsync(new Uri(url), cancellationToken);
-            _isStreaming = true;
+            await _webSocket!.ConnectAsync(new Uri(url), cancellationToken);
+            _isConnected = true;
+            
+            _logger.LogInformation("Deepgram streaming connected in {Ms}ms", stopwatch.ElapsedMilliseconds);
             
             // Start receiving responses in background
-            _receiveTask = ReceiveResponsesAsync(_receiveCts.Token);
+            _receiveTask = ReceiveResponsesAsync(_receiveCts!.Token);
             
-            _logger.LogInformation("Deepgram streaming connected successfully");
+            // Flush any buffered audio that arrived before connection
+            var bufferedChunks = 0;
+            while (_audioBuffer.TryDequeue(out var chunk))
+            {
+                if (_webSocket.State == WebSocketState.Open)
+                {
+                    await _webSocket.SendAsync(
+                        new ArraySegment<byte>(chunk),
+                        WebSocketMessageType.Binary,
+                        endOfMessage: true,
+                        cancellationToken);
+                    bufferedChunks++;
+                }
+            }
+            
+            if (bufferedChunks > 0)
+            {
+                _logger.LogDebug("Flushed {Count} buffered audio chunks", bufferedChunks);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect to Deepgram streaming API");
+            _logger.LogError(ex, "Failed to connect to Deepgram streaming API after {Ms}ms", stopwatch.ElapsedMilliseconds);
             _webSocket?.Dispose();
             _webSocket = null;
+            _isConnected = false;
             _isStreaming = false;
-            throw;
         }
     }
 
     /// <summary>
     /// Send an audio chunk to Deepgram during recording.
+    /// If WebSocket isn't connected yet, buffers the audio for later.
     /// </summary>
     public async Task SendAudioChunkAsync(byte[] audioData, CancellationToken cancellationToken = default)
     {
-        if (_webSocket?.State != WebSocketState.Open)
+        if (!_isStreaming) return;
+        
+        // If not connected yet, buffer the audio
+        if (!_isConnected || _webSocket?.State != WebSocketState.Open)
         {
+            _audioBuffer.Enqueue(audioData);
             return;
         }
 
@@ -171,6 +217,41 @@ public class DeepgramStreamingService : ITranscriptionService
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         _isStreaming = false;
+        
+        // Wait for connection to complete if still connecting (with timeout)
+        if (_connectTask != null && !_connectTask.IsCompleted)
+        {
+            try
+            {
+                await _connectTask.WaitAsync(TimeSpan.FromSeconds(3), cancellationToken);
+                _logger.LogDebug("Connection completed at {Ms}ms", stopwatch.ElapsedMilliseconds);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Connection timed out, proceeding with available data");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Connection failed, proceeding with available data");
+            }
+        }
+        
+        // Flush any remaining buffered audio
+        if (_isConnected && _webSocket?.State == WebSocketState.Open)
+        {
+            while (_audioBuffer.TryDequeue(out var chunk))
+            {
+                try
+                {
+                    await _webSocket.SendAsync(
+                        new ArraySegment<byte>(chunk),
+                        WebSocketMessageType.Binary,
+                        endOfMessage: true,
+                        cancellationToken);
+                }
+                catch { break; }
+            }
+        }
         
         if (_webSocket?.State == WebSocketState.Open)
         {
@@ -386,6 +467,8 @@ public class DeepgramStreamingService : ITranscriptionService
         _webSocket?.Dispose();
         _webSocket = null;
         _isStreaming = false;
+        _isConnected = false;
+        while (_audioBuffer.TryDequeue(out _)) { }  // Clear buffer
         GC.SuppressFinalize(this);
     }
 }

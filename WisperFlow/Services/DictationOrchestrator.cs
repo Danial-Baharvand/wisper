@@ -154,7 +154,7 @@ public class DictationOrchestrator
         _hotkeyManager.RegisterHotkey(modifiers, key);
     }
 
-    private async void OnRecordStart(object? sender, EventArgs e)
+    private void OnRecordStart(object? sender, EventArgs e)
     {
         if (!_isEnabled || _isProcessing) return;
         if (_servicesInitializing)
@@ -175,7 +175,7 @@ public class DictationOrchestrator
             
             if (useStreaming)
             {
-                // Start streaming transcription alongside recording
+                // Start streaming transcription - connection happens in background!
                 var model = ModelCatalog.GetById(settings.TranscriptionModelId);
                 if (model != null)
                 {
@@ -184,18 +184,20 @@ public class DictationOrchestrator
                     
                     try
                     {
-                        await _streamingService.StartStreamingAsync(
+                        // This returns immediately - connection happens in background
+                        // Audio is buffered until connection completes
+                        _streamingService.StartStreamingAsync(
                             settings.Language == "auto" ? "en" : settings.Language,
                             _currentOperationCts.Token);
                         
-                        // Subscribe to audio chunks
+                        // Subscribe to audio chunks immediately
                         _audioRecorder.AudioDataAvailable += OnAudioDataForStreaming;
                         _isStreamingActive = true;
-                        _logger.LogInformation("Deepgram streaming started");
+                        _logger.LogInformation("Deepgram streaming initiated (connecting in background)");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to start streaming, falling back to batch");
+                        _logger.LogWarning(ex, "Failed to initiate streaming, falling back to batch");
                         _streamingService?.Dispose();
                         _streamingService = null;
                         _isStreamingActive = false;
@@ -203,6 +205,7 @@ public class DictationOrchestrator
                 }
             }
             
+            // Start recording IMMEDIATELY - no delay!
             _audioRecorder.StartRecording();
             _overlayWindow.ShowRecording();
             _logger.LogInformation("Recording started (streaming: {Streaming})", _isStreamingActive);
@@ -232,7 +235,12 @@ public class DictationOrchestrator
 
     private async void OnRecordStop(object? sender, EventArgs e)
     {
+        // Multiple guards to prevent double-processing
         if (!_audioRecorder.IsRecording) return;
+        if (_isProcessing) return;  // Already processing a previous recording
+        
+        // Set flag immediately to prevent any race conditions
+        _isProcessing = true;
 
         // Unsubscribe from audio events
         _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
@@ -242,6 +250,7 @@ public class DictationOrchestrator
         {
             _overlayWindow.Hide();
             CleanupStreaming();
+            _isProcessing = false;  // Reset flag
             return;
         }
 
@@ -266,7 +275,7 @@ public class DictationOrchestrator
     
     private async Task ProcessStreamingRecordingAsync(string audioFilePath)
     {
-        _isProcessing = true;
+        // _isProcessing already set in OnRecordStop
         var settings = _settingsManager.CurrentSettings;
         var cts = _currentOperationCts;
 
@@ -332,7 +341,7 @@ public class DictationOrchestrator
 
     private async Task ProcessRecordingAsync(string audioFilePath)
     {
-        _isProcessing = true;
+        // _isProcessing already set in OnRecordStop
         var settings = _settingsManager.CurrentSettings;
         var cts = _currentOperationCts;
 
@@ -438,13 +447,18 @@ public class DictationOrchestrator
 
     private async void OnCommandRecordStop(object? sender, EventArgs e)
     {
+        // Multiple guards to prevent double-processing
         if (!_audioRecorder.IsRecording) return;
+        if (_isProcessing) return;
+        
+        _isProcessing = true;
 
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
             _overlayWindow.Hide();
             _isCommandMode = false;
+            _isProcessing = false;
             return;
         }
 
@@ -495,7 +509,7 @@ public class DictationOrchestrator
 
     private async Task ProcessCommandRecordingAsync(string audioFilePath)
     {
-        _isProcessing = true;
+        // _isProcessing already set in OnCommandRecordStop
         var settings = _settingsManager.CurrentSettings;
         var cts = _currentOperationCts;
 
@@ -718,13 +732,18 @@ public class DictationOrchestrator
 
     private async void OnCodeDictationRecordStop(object? sender, EventArgs e)
     {
+        // Multiple guards to prevent double-processing
         if (!_audioRecorder.IsRecording) return;
+        if (_isProcessing) return;
+        
+        _isProcessing = true;
 
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
             _overlayWindow.Hide();
             _isCodeDictationMode = false;
+            _isProcessing = false;
             return;
         }
 
@@ -733,7 +752,7 @@ public class DictationOrchestrator
 
     private async Task ProcessCodeDictationAsync(string audioFilePath)
     {
-        _isProcessing = true;
+        // _isProcessing already set in OnCodeDictationRecordStop
         var settings = _settingsManager.CurrentSettings;
         var cts = _currentOperationCts;
 
