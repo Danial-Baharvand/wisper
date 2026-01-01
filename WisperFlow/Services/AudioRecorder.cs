@@ -117,11 +117,17 @@ public class AudioRecorder : IDisposable
 
         try
         {
+            // Set flag FIRST to signal OnDataAvailable to stop writing
+            _isRecording = false;
+            
             _maxDurationTimer?.Stop();
             _maxDurationTimer?.Dispose();
             _maxDurationTimer = null;
 
             _waveIn?.StopRecording();
+            
+            // Small delay to let any in-flight OnDataAvailable callbacks complete
+            Thread.Sleep(10);
             
             // CRITICAL: Dispose writer BEFORE returning path to release file lock
             _waveWriter?.Dispose();
@@ -129,8 +135,6 @@ public class AudioRecorder : IDisposable
             
             _waveIn?.Dispose();
             _waveIn = null;
-            
-            _isRecording = false;
             
             var duration = DateTime.Now - _recordingStartTime;
             _logger.LogInformation("Recording stopped, duration: {Duration:F1}s, bytes recorded: {Bytes}", 
@@ -148,9 +152,16 @@ public class AudioRecorder : IDisposable
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (_waveWriter != null && e.BytesRecorded > 0)
+        // Capture to local variable for thread-safety (StopRecording can null these)
+        var writer = _waveWriter;
+        
+        // Check both _isRecording and writer to avoid race conditions
+        if (!_isRecording || writer == null || e.BytesRecorded <= 0)
+            return;
+        
+        try
         {
-            _waveWriter.Write(e.Buffer, 0, e.BytesRecorded);
+            writer.Write(e.Buffer, 0, e.BytesRecorded);
             _totalBytesRecorded += e.BytesRecorded; // DEBUG
             
             // Fire event for streaming transcription
@@ -164,6 +175,10 @@ public class AudioRecorder : IDisposable
             var duration = DateTime.Now - _recordingStartTime;
             if (duration.TotalMilliseconds % 500 < 50)
                 RecordingProgress?.Invoke(this, duration);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Writer was disposed between our check and write - this is expected during shutdown
         }
     }
 

@@ -30,6 +30,23 @@ public class DeepgramStreamingService : ITranscriptionService
     private bool _isStreaming;
     private bool _isConnected;  // Track if WebSocket is actually connected
     
+    // Option D: UtteranceEnd tracking for smart waiting
+    private volatile bool _utteranceEndReceived;
+    private volatile bool _speechFinalReceived;
+    private int _transcriptCountBeforeFinalize;  // For Option A: count tracking
+    private DateTime _lastTranscriptTime = DateTime.MinValue;
+    
+    /// <summary>
+    /// Event fired when an interim transcript is received (for real-time UI).
+    /// Interim results are progressive and replace the previous interim.
+    /// </summary>
+    public event Action<string, bool>? OnTranscriptUpdate;  // (text, isFinal)
+    
+    /// <summary>
+    /// Event fired when Deepgram signals utterance end (speech stopped).
+    /// </summary>
+    public event Action? OnUtteranceEnd;
+    
     public string ModelId => _model.Id;
     public bool IsReady => !string.IsNullOrEmpty(GetApiKey());
     public bool IsConnected => _isConnected;
@@ -81,6 +98,12 @@ public class DeepgramStreamingService : ITranscriptionService
         _isConnected = false;
         _isStreaming = true;  // Mark as streaming immediately so audio starts buffering
         _receiveCts = new CancellationTokenSource();
+        
+        // Reset Option D tracking
+        _utteranceEndReceived = false;
+        _speechFinalReceived = false;
+        _transcriptCountBeforeFinalize = 0;
+        _lastTranscriptTime = DateTime.MinValue;
 
         // Build WebSocket URL with parameters
         var queryParams = new List<string>
@@ -90,8 +113,12 @@ public class DeepgramStreamingService : ITranscriptionService
             "encoding=linear16",
             "sample_rate=16000",
             "channels=1",
-            "interim_results=false"  // Only final results for reliability
+            "interim_results=true"   // Required for utterance_end_ms feature
         };
+        
+        // Option D: Enable UtteranceEnd events for smart completion detection
+        // This tells us when Deepgram detects end of speech, allowing smarter waiting
+        queryParams.Add("utterance_end_ms=1000");  // 1 second of silence triggers UtteranceEnd
         
         // Core formatting options
         if (_settings.DeepgramSmartFormat) queryParams.Add("smart_format=true");
@@ -380,11 +407,19 @@ public class DeepgramStreamingService : ITranscriptionService
                 
                 _logger.LogDebug("Sent Finalize message at {Ms}ms", stopwatch.ElapsedMilliseconds);
                 
-                // Step 2: Wait briefly for final results (endpointing should have processed most already)
-                // With endpointing=300ms, most results are already in. Just wait for stragglers.
-                await Task.Delay(150, cancellationToken);
+                // Option A+D: Record count before waiting to detect NEW results
+                _transcriptCountBeforeFinalize = _transcriptParts.Count;
+                _utteranceEndReceived = false;  // Reset for post-Finalize detection
                 
-                _logger.LogDebug("Waited for final results at {Ms}ms", stopwatch.ElapsedMilliseconds);
+                // Step 2: Smart wait using Option A (count tracking) + Option D (UtteranceEnd)
+                var waitResult = await WaitForTranscriptSmartAsync(
+                    maxWaitMs: 600,       // Max total wait time
+                    pollIntervalMs: 25,   // Check every 25ms
+                    minWaitMs: 100,       // Always wait at least 100ms
+                    debounceMs: 150,      // After new result, wait 150ms more for stragglers
+                    cancellationToken);
+                
+                _logger.LogDebug("Waited for results: {Result} at {Ms}ms", waitResult, stopwatch.ElapsedMilliseconds);
                 
                 // Step 3: Close the stream
                 var closeMessage = Encoding.UTF8.GetBytes("{\"type\": \"CloseStream\"}");
@@ -445,6 +480,95 @@ public class DeepgramStreamingService : ITranscriptionService
         _logger.LogInformation("Transcript: {Transcript}", finalTranscript);
         
         return finalTranscript;
+    }
+    
+    /// <summary>
+    /// Smart wait that combines Option A (count tracking) and Option D (UtteranceEnd).
+    /// - Waits for NEW results (count increased since Finalize)
+    /// - OR waits for UtteranceEnd signal from Deepgram
+    /// - After getting new results, debounces for stragglers
+    /// </summary>
+    private async Task<string> WaitForTranscriptSmartAsync(
+        int maxWaitMs, 
+        int pollIntervalMs, 
+        int minWaitMs,
+        int debounceMs,
+        CancellationToken cancellationToken)
+    {
+        var elapsed = 0;
+        var gotNewResults = false;
+        var debounceStart = -1;
+        
+        // Always wait minimum time (gives Deepgram time to start processing)
+        await Task.Delay(minWaitMs, cancellationToken);
+        elapsed += minWaitMs;
+        
+        // Check initial state
+        var currentCount = _transcriptParts.Count;
+        if (currentCount > _transcriptCountBeforeFinalize)
+        {
+            gotNewResults = true;
+            debounceStart = elapsed;
+        }
+        
+        // If UtteranceEnd already received, we can be more confident we're done
+        if (_utteranceEndReceived && currentCount > 0)
+        {
+            return $"utteranceEnd + {currentCount} results after {elapsed}ms";
+        }
+        
+        // Poll until we meet exit conditions or timeout
+        while (elapsed < maxWaitMs)
+        {
+            await Task.Delay(pollIntervalMs, cancellationToken);
+            elapsed += pollIntervalMs;
+            
+            currentCount = _transcriptParts.Count;
+            
+            // Check for new results (Option A)
+            if (!gotNewResults && currentCount > _transcriptCountBeforeFinalize)
+            {
+                gotNewResults = true;
+                debounceStart = elapsed;
+                _logger.LogDebug("Got new results at {Ms}ms, starting debounce", elapsed);
+            }
+            
+            // Option D: UtteranceEnd received = Deepgram says it's done
+            if (_utteranceEndReceived)
+            {
+                if (gotNewResults)
+                {
+                    return $"utteranceEnd + new results after {elapsed}ms";
+                }
+                // UtteranceEnd but no new results - wait a bit more for the actual transcript
+                if (elapsed > minWaitMs + 200)
+                {
+                    return $"utteranceEnd (no new results) after {elapsed}ms";
+                }
+            }
+            
+            // Debounce: after getting new results, wait a bit more for stragglers
+            if (gotNewResults && debounceStart > 0)
+            {
+                if (elapsed - debounceStart >= debounceMs)
+                {
+                    return $"debounce complete after {elapsed}ms ({currentCount} results)";
+                }
+            }
+            
+            // If WebSocket is closed, stop waiting
+            if (_webSocket?.State != WebSocketState.Open)
+            {
+                return $"socket closed after {elapsed}ms";
+            }
+        }
+        
+        // Timeout - return what we have
+        if (gotNewResults)
+        {
+            return $"timeout with new results after {elapsed}ms";
+        }
+        return $"timeout after {elapsed}ms (no new results, count={currentCount}, before={_transcriptCountBeforeFinalize})";
     }
 
     private async Task ReceiveResponsesAsync(CancellationToken cancellationToken)
@@ -515,7 +639,16 @@ public class DeepgramStreamingService : ITranscriptionService
                     // Check if this is a final result
                     var isFinal = root.TryGetProperty("is_final", out var isFinalEl) && isFinalEl.GetBoolean();
                     
-                    if (isFinal && root.TryGetProperty("channel", out var channel))
+                    // Also check for speech_final (end of speech segment)
+                    var speechFinal = root.TryGetProperty("speech_final", out var sfEl) && sfEl.GetBoolean();
+                    if (speechFinal)
+                    {
+                        _speechFinalReceived = true;
+                        _logger.LogDebug("Received speech_final signal");
+                    }
+                    
+                    // Process both interim and final results
+                    if (root.TryGetProperty("channel", out var channel))
                     {
                         if (channel.TryGetProperty("alternatives", out var alternatives))
                         {
@@ -526,14 +659,45 @@ public class DeepgramStreamingService : ITranscriptionService
                                     var text = transcript.GetString();
                                     if (!string.IsNullOrWhiteSpace(text))
                                     {
-                                        _transcriptParts.Enqueue(text);
-                                        _logger.LogDebug("Received final transcript segment: '{Text}'", 
-                                            text.Length > 50 ? text[..50] + "..." : text);
+                                        // Only queue final results for the actual transcript
+                                        if (isFinal)
+                                        {
+                                            _transcriptParts.Enqueue(text);
+                                            _lastTranscriptTime = DateTime.UtcNow;
+                                            _logger.LogDebug("Received final transcript: '{Text}'", 
+                                                text.Length > 50 ? text[..50] + "..." : text);
+                                        }
+                                        
+                                        // Fire event for real-time UI (both interim and final)
+                                        // Interim results are progressive and replace the previous interim
+                                        try
+                                        {
+                                            OnTranscriptUpdate?.Invoke(text, isFinal);
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            _logger.LogWarning(ex, "Error in OnTranscriptUpdate handler");
+                                        }
                                     }
                                 }
                                 break; // Just use first alternative
                             }
                         }
+                    }
+                }
+                else if (type == "UtteranceEnd")
+                {
+                    // Option D: Deepgram detected end of speech
+                    _utteranceEndReceived = true;
+                    _logger.LogDebug("Received UtteranceEnd signal - Deepgram finished processing");
+                    
+                    try
+                    {
+                        OnUtteranceEnd?.Invoke();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error in OnUtteranceEnd handler");
                     }
                 }
                 else if (type == "Metadata")

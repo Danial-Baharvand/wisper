@@ -16,6 +16,7 @@ public partial class App : Application
     private TextInjector? _textInjector;
     private SettingsManager? _settingsManager;
     private OverlayWindow? _overlayWindow;
+    private FloatingTranscriptWindow? _floatingTranscriptWindow;
     private ModelManager? _modelManager;
     private ServiceFactory? _serviceFactory;
     private CodeContextService? _codeContextService;
@@ -166,12 +167,14 @@ public partial class App : Application
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());
         _textInjector = new TextInjector(_loggerFactory!.CreateLogger<TextInjector>());
         _overlayWindow = new OverlayWindow();
+        _floatingTranscriptWindow = new FloatingTranscriptWindow();
 
         _orchestrator = new DictationOrchestrator(
             _hotkeyManager,
             _audioRecorder,
             _textInjector,
             _overlayWindow,
+            _floatingTranscriptWindow,
             _settingsManager,
             _serviceFactory,
             _codeContextService,
@@ -195,6 +198,7 @@ public partial class App : Application
         _audioRecorder?.Dispose();
         _codeContextService?.Dispose();
         _overlayWindow?.Close();
+        _floatingTranscriptWindow?.Close();
         _loggerFactory?.Dispose();
         base.OnExit(e);
     }

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Accessibility;
 using Microsoft.Extensions.Logging;
@@ -17,6 +19,9 @@ namespace WisperFlow.Services.CodeContext;
 /// 
 /// For LLM prompts:
 /// - 100 file names, 400 symbols max
+/// 
+/// IMPORTANT: Only activates when a code editor is in the FOREGROUND.
+/// Uses per-window path caching and per-project content caching.
 /// </summary>
 public class CodeContextService : IDisposable
 {
@@ -26,30 +31,52 @@ public class CodeContextService : IDisposable
     private const int MAX_FILE_QUEUE_SIZE = 400;
     private const int MAX_PROMPT_FILES = 100;
     private const int MAX_PROMPT_SYMBOLS = 400;
-    private const int MAX_CHILDREN_BUFFER = 200; // Reusable buffer size for NavigateToPath
+    private const int MAX_CHILDREN_BUFFER = 200;
+    private const int EXTRACTION_CACHE_SECONDS = 60;
     
     private readonly ILogger _logger;
     private readonly object _lock = new();
     
-    private PathCache? _cache;
-    private string? _processName;
-    private DateTime _lastExtraction;
-    private readonly Queue<string> _tabFileQueue = new(); // File names from tabs
-    private readonly Queue<string> _explorerFileQueue = new(); // File names from explorer
-    private List<string> _cachedSymbols = new();
-    private bool _isExtracting;
+    // === Foreground Window Detection ===
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
     
-    // Process lookup cache to avoid repeated Process.GetProcesses() calls
-    private Process? _cachedEditorProcess;
-    private DateTime _lastProcessLookup;
-    private const int PROCESS_CACHE_MS = 500; // Cache process lookup for 500ms
-    private const int EXTRACTION_CACHE_SECONDS = 60; // Cache extraction results for 60 seconds
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+    
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    
+    // === Per-Window Caches (Runtime Only) ===
+    // Maps window handle to its path cache (node paths can differ per window due to UI layout)
+    private readonly Dictionary<IntPtr, PathCache> _windowPathCaches = new();
+    
+    // Maps window handle to known editor process (avoids Process.GetProcesses())
+    private readonly Dictionary<IntPtr, (Process process, string editorName)> _knownEditorWindows = new();
+    
+    // === Per-Project Caches (Persistent) ===
+    // Maps project name to its content cache (files/symbols)
+    private readonly Dictionary<string, ProjectContentCache> _projectContentCaches = new();
+    
+    // === Current State ===
+    private IntPtr _currentWindowHandle;
+    private string? _currentProjectName;
+    private string? _currentEditorName;
+    private PathCache? _currentPathCache;
+    private ProjectContentCache? _currentContentCache;
+    private DateTime _lastExtraction;
+    private bool _isExtracting;
     
     // Reusable buffer for NavigateToPath to reduce GC pressure
     private readonly object[] _childBuffer = new object[MAX_CHILDREN_BUFFER];
     
     // Supported editor process names
     private static readonly string[] SupportedEditors = { "Cursor", "Code", "VSCodium" };
+    
+    // Cache directory
+    private static readonly string CacheDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WisperFlow", "ProjectCaches");
     
     /// <summary>
     /// Enable diagnostic features like DumpAccessibilityTreeAsync.
@@ -60,31 +87,269 @@ public class CodeContextService : IDisposable
     public CodeContextService(ILogger<CodeContextService> logger)
     {
         _logger = logger;
+        
+        // Ensure cache directory exists
+        try
+        {
+            if (!Directory.Exists(CacheDir))
+                Directory.CreateDirectory(CacheDir);
+        }
+        catch { /* Ignore - caching will just fail gracefully */ }
+    }
+    
+    #region Foreground Detection and Project Identification
+    
+    /// <summary>
+    /// Checks if the foreground window is a supported code editor.
+    /// Returns the window handle if it is, IntPtr.Zero otherwise.
+    /// This is very cheap (~1μs) - just a Win32 call.
+    /// </summary>
+    private IntPtr GetForegroundEditorWindow()
+    {
+        IntPtr foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+            return IntPtr.Zero;
+        
+        // Fast path: check if we already know this window
+        if (_knownEditorWindows.ContainsKey(foreground))
+            return foreground;
+        
+        // Slower path: get process ID and check if it's an editor
+        GetWindowThreadProcessId(foreground, out uint processId);
+        if (processId == 0)
+            return IntPtr.Zero;
+        
+        try
+        {
+            var process = Process.GetProcessById((int)processId);
+            var processName = process.ProcessName;
+            
+            foreach (var editor in SupportedEditors)
+            {
+                if (processName.Equals(editor, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Cache this window for fast future lookups
+                    _knownEditorWindows[foreground] = (process, editor);
+                    CacheLogger.Log($"Discovered editor window: {editor} (hwnd={foreground}, pid={processId})");
+                    return foreground;
+                }
+            }
+        }
+        catch
+        {
+            // Process may have exited
+        }
+        
+        return IntPtr.Zero;
     }
     
     /// <summary>
+    /// Extracts project name from window title.
+    /// Cursor/VS Code titles are typically: "filename - ProjectName - Cursor" or "ProjectName - Cursor"
+    /// </summary>
+    private string? GetProjectNameFromWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return null;
+        
+        var sb = new StringBuilder(512);
+        int length = GetWindowText(hwnd, sb, 512);
+        if (length == 0)
+            return null;
+        
+        var title = sb.ToString();
+        
+        // Parse: "file.py - ProjectName - Cursor" or "ProjectName - Cursor"
+        // We want the second-to-last segment
+        var parts = title.Split(" - ", StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length >= 2)
+        {
+            // The last part is the editor name (Cursor, Code, etc.)
+            // The second-to-last is usually the project/folder name
+            var projectName = parts[^2].Trim();
+            
+            // Validate: project name shouldn't be too long or contain invalid chars
+            if (projectName.Length > 0 && projectName.Length < 100 && 
+                !projectName.Contains(Path.DirectorySeparatorChar) &&
+                !projectName.Contains(Path.AltDirectorySeparatorChar))
+            {
+                return projectName;
+            }
+        }
+        
+        // Fallback: use the whole title (sanitized)
+        var sanitized = string.Join("_", title.Split(Path.GetInvalidFileNameChars()));
+        return sanitized.Length > 50 ? sanitized.Substring(0, 50) : sanitized;
+    }
+    
+    /// <summary>
+    /// Switches to the appropriate caches for the current foreground window.
+    /// Returns true if a valid editor is in foreground and caches are ready.
+    /// </summary>
+    private bool SwitchToCurrentWindowContext()
+    {
+        var hwnd = GetForegroundEditorWindow();
+        if (hwnd == IntPtr.Zero)
+        {
+            _currentWindowHandle = IntPtr.Zero;
+            _currentProjectName = null;
+            _currentPathCache = null;
+            _currentContentCache = null;
+            return false;
+        }
+        
+        // Check if we're already on this window
+        if (hwnd == _currentWindowHandle && _currentPathCache != null && _currentContentCache != null)
+        {
+            return true;
+        }
+        
+        _currentWindowHandle = hwnd;
+        
+        // Get or create path cache for this window (runtime only)
+        if (!_windowPathCaches.TryGetValue(hwnd, out _currentPathCache))
+        {
+            _currentPathCache = new PathCache();
+            _windowPathCaches[hwnd] = _currentPathCache;
+            CacheLogger.Log($"Created new path cache for window {hwnd}");
+        }
+        
+        // Get project name and load/create content cache
+        var projectName = GetProjectNameFromWindow(hwnd);
+        if (projectName != _currentProjectName || _currentContentCache == null)
+        {
+            _currentProjectName = projectName;
+            
+            if (!string.IsNullOrEmpty(projectName))
+            {
+                if (!_projectContentCaches.TryGetValue(projectName, out _currentContentCache))
+                {
+                    // Try to load from disk first
+                    _currentContentCache = LoadProjectContentCache(projectName) ?? new ProjectContentCache();
+                    _projectContentCaches[projectName] = _currentContentCache;
+                    CacheLogger.Log($"Loaded/created content cache for project '{projectName}': {_currentContentCache.TabFiles.Count} tabs, {_currentContentCache.ExplorerFiles.Count} explorer, {_currentContentCache.Symbols.Count} symbols");
+                }
+            }
+            else
+            {
+                // No project name - use a default cache
+                _currentContentCache = new ProjectContentCache();
+            }
+        }
+        
+        // Get editor name for this window
+        if (_knownEditorWindows.TryGetValue(hwnd, out var editorInfo))
+        {
+            _currentEditorName = editorInfo.editorName;
+        }
+        
+        return true;
+    }
+    
+    /// <summary>
+    /// Gets the Process for the current foreground editor window.
+    /// Returns null if no editor is in foreground.
+    /// </summary>
+    private Process? GetCurrentEditorProcess()
+    {
+        if (_currentWindowHandle == IntPtr.Zero)
+            return null;
+        
+        if (_knownEditorWindows.TryGetValue(_currentWindowHandle, out var info))
+            return info.process;
+        
+        return null;
+    }
+    
+    #endregion
+    
+    #region Project Content Cache Persistence
+    
+    private string GetProjectCachePath(string projectName)
+    {
+        // Sanitize project name for filename
+        var safeName = string.Join("_", projectName.Split(Path.GetInvalidFileNameChars()));
+        return Path.Combine(CacheDir, $"{safeName}_content.json");
+    }
+    
+    private ProjectContentCache? LoadProjectContentCache(string projectName)
+    {
+        try
+        {
+            var path = GetProjectCachePath(projectName);
+            if (!File.Exists(path))
+                return null;
+            
+            var json = File.ReadAllText(path);
+            var cache = JsonSerializer.Deserialize<ProjectContentCache>(json);
+            
+            if (cache != null)
+            {
+                CacheLogger.LogCache("Loaded", $"Project '{projectName}': {cache.TabFiles.Count} tabs, {cache.ExplorerFiles.Count} explorer, {cache.Symbols.Count} symbols");
+            }
+            
+            return cache;
+        }
+        catch (Exception ex)
+        {
+            CacheLogger.Log($"Failed to load project cache '{projectName}': {ex.Message}");
+            return null;
+        }
+    }
+    
+    private void SaveProjectContentCache(string projectName, ProjectContentCache cache)
+    {
+        try
+        {
+            var path = GetProjectCachePath(projectName);
+            cache.LastUpdated = DateTime.UtcNow;
+            
+            var json = JsonSerializer.Serialize(cache, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(path, json);
+            
+            CacheLogger.LogCache("Saved", $"Project '{projectName}': {cache.TabFiles.Count} tabs, {cache.ExplorerFiles.Count} explorer, {cache.Symbols.Count} symbols");
+        }
+        catch (Exception ex)
+        {
+            CacheLogger.Log($"Failed to save project cache '{projectName}': {ex.Message}");
+        }
+    }
+    
+    #endregion
+    
+    /// <summary>
     /// Gets keywords for Deepgram based on current code editor context.
-    /// Returns empty list if no supported editor is active.
+    /// Returns empty list if no supported editor is in the FOREGROUND.
     /// Prioritizes non-English words since Deepgram already knows common English.
     /// 
     /// KEY DESIGN:
-    /// - Only extracts when a code editor is the active window
+    /// - Only extracts when a code editor is in the FOREGROUND (not just running)
+    /// - Uses per-window path caches (runtime) and per-project content caches (persistent)
     /// - If we have cached node paths, use them for fast (~50ms) extraction
     /// - If cache is invalid or missing, return cached data immediately and refresh paths in background
     /// - Never blocks polish operations with slow 5-second full traversals
     /// </summary>
     public async Task<List<string>> GetKeywordsForDeepgramAsync()
     {
-        // STEP 1: Check if a code editor is active - if not, return empty immediately
-        var process = FindSupportedEditorProcess();
-        if (process == null)
+        // STEP 1: Check if a code editor is in the FOREGROUND - if not, return empty immediately
+        if (!SwitchToCurrentWindowContext())
         {
-            _logger.LogDebug("No supported code editor active, skipping extraction");
+            _logger.LogDebug("No code editor in foreground, skipping extraction");
             return new List<string>();
         }
         
+        var process = GetCurrentEditorProcess();
+        if (process == null)
+        {
+            _logger.LogDebug("Could not get editor process, skipping extraction");
+            return new List<string>();
+        }
+        
+        CacheLogger.Log($"Foreground editor: {_currentEditorName}, project: {_currentProjectName}, hwnd: {_currentWindowHandle}");
+        
         // STEP 2: If we already have cached data AND extraction is in progress, return cached data
-        bool haveCachedData = _tabFileQueue.Count > 0 || _explorerFileQueue.Count > 0 || _cachedSymbols.Count > 0;
+        bool haveCachedData = _currentContentCache?.HasContent ?? false;
         
         lock (_lock)
         {
@@ -95,13 +360,12 @@ public class CodeContextService : IDisposable
             }
         }
         
-        // STEP 3: Try fast extraction using cached node paths
+        // STEP 3: Try fast extraction using cached node paths (per-window)
         var fastResult = await TryFastExtractionAsync(process);
         if (fastResult != null)
         {
             // Fast extraction succeeded - update our cached data
-            UpdateFileNameQueue(fastResult);
-            _cachedSymbols = fastResult.Symbols.ToList();
+            UpdateContentCache(fastResult);
             _lastExtraction = DateTime.UtcNow;
             _logger.LogDebug("Fast extraction: {Files} files, {Symbols} symbols", 
                 fastResult.Tabs.Count + fastResult.ExplorerItems.Count, fastResult.Symbols.Count);
@@ -120,42 +384,40 @@ public class CodeContextService : IDisposable
         
         // STEP 5: No cached data at all - we need to do initial extraction
         // This only happens on first use - do it but with a short timeout
-        _logger.LogInformation("First extraction - building cache (may take a few seconds)");
+        _logger.LogInformation("First extraction for project '{Project}' - building cache", _currentProjectName);
         await RefreshCacheInBackgroundAsync(process);
         return BuildKeywordList();
     }
     
     /// <summary>
-    /// Attempts fast extraction using cached node paths.
+    /// Attempts fast extraction using cached node paths (per-window).
     /// Returns null if cache is missing or invalid (3 strikes).
     /// Handles PartiallyValid state by extracting with working paths and triggering background refresh.
     /// Should complete in ~50ms when cache is valid.
     /// </summary>
     private async Task<ExtractionResult?> TryFastExtractionAsync(Process process)
     {
-        _processName = process.ProcessName;
-        
-        // Load cached paths
-        _cache ??= PathCache.Load(_processName);
-        if (_cache == null)
+        // Use the current window's path cache
+        if (_currentPathCache == null)
         {
-            _logger.LogDebug("No path cache for {Process}", _processName);
-            CacheLogger.Log($"No cache file found for {_processName}");
+            _logger.LogDebug("No path cache for current window");
+            CacheLogger.Log($"No path cache for window {_currentWindowHandle}");
             return null;
         }
         
-        if (!_cache.IsComplete)
+        if (!_currentPathCache.IsComplete)
         {
-            _logger.LogDebug("Path cache incomplete for {Process}", _processName);
-            CacheLogger.Log($"Cache incomplete for {_processName}: {_cache}");
+            _logger.LogDebug("Path cache incomplete for current window");
+            CacheLogger.Log($"Cache incomplete for window {_currentWindowHandle}");
             return null;
         }
         
-        var hwnd = process.MainWindowHandle;
+        // Use the current foreground window handle (already verified)
+        var hwnd = _currentWindowHandle;
         int hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref IID_IAccessible, out object accObj);
         if (hr != 0 || accObj == null)
         {
-            CacheLogger.Log($"Failed to get IAccessible for {_processName}");
+            CacheLogger.Log($"Failed to get IAccessible for window {hwnd}");
             return null;
         }
         
@@ -168,9 +430,9 @@ public class CodeContextService : IDisposable
         
         if (status == CacheStatus.Invalid)
         {
-            // 3 strikes - delete cache and return null to trigger full refresh
-            PathCache.Delete(_processName);
-            _cache = null;
+            // 3 strikes - clear cache and return null to trigger full refresh
+            _currentPathCache = new PathCache();
+            _windowPathCaches[_currentWindowHandle] = _currentPathCache;
             _logger.LogDebug("Cache invalidated after 3 failures, will do full refresh");
             return null;
         }
@@ -217,7 +479,7 @@ public class CodeContextService : IDisposable
     
     /// <summary>
     /// Refreshes the path cache in the background by doing a full traversal.
-    /// This updates the cached paths for next time.
+    /// This updates the cached paths for the current window (per-window).
     /// </summary>
     private async Task RefreshCacheInBackgroundAsync(Process process)
     {
@@ -229,18 +491,19 @@ public class CodeContextService : IDisposable
             _isExtracting = true;
         }
         
-        CacheLogger.LogBackground($"Starting full traversal for {process.ProcessName}");
+        // Capture current state at start (in case foreground changes during traversal)
+        var hwnd = _currentWindowHandle;
+        var projectName = _currentProjectName;
+        
+        CacheLogger.LogBackground($"Starting full traversal for window {hwnd}, project '{projectName}'");
         
         try
         {
-            _processName = process.ProcessName;
-            var hwnd = process.MainWindowHandle;
-            
             int hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref IID_IAccessible, out object accObj);
             if (hr != 0 || accObj == null)
             {
-                _logger.LogWarning("Could not get IAccessible for {Process}", process.ProcessName);
-                CacheLogger.LogBackground($"Failed to get IAccessible for {process.ProcessName}");
+                _logger.LogWarning("Could not get IAccessible for window {Hwnd}", hwnd);
+                CacheLogger.LogBackground($"Failed to get IAccessible for window {hwnd}");
                 return;
             }
             
@@ -257,12 +520,12 @@ public class CodeContextService : IDisposable
             _logger.LogDebug("Full traversal with path tracking: {Time}ms", stopwatch.ElapsedMilliseconds);
             CacheLogger.LogBackground($"Full traversal complete: {stopwatch.ElapsedMilliseconds}ms");
             
-            // Save the paths we found to cache
+            // Save the paths we found to per-window cache (runtime only)
             if (pathsFound.TabContainerPath != null || pathsFound.CodeEditorPath != null)
             {
-                _cache = new PathCache
+                var pathCache = new PathCache
                 {
-                    ProcessName = _processName,
+                    ProcessName = process.ProcessName,
                     TabContainerPath = pathsFound.TabContainerPath,
                     TabContainerDepth = pathsFound.TabContainerDepth,
                     ExplorerContainerPath = pathsFound.ExplorerContainerPath,
@@ -271,8 +534,16 @@ public class CodeContextService : IDisposable
                     CodeEditorDepth = pathsFound.CodeEditorDepth,
                     CreatedAt = DateTime.UtcNow
                 };
-                _cache.Save(_processName);
-                _logger.LogInformation("Saved new path cache for {Process}", _processName);
+                
+                _windowPathCaches[hwnd] = pathCache;
+                
+                // Update current if this is still the active window
+                if (hwnd == _currentWindowHandle)
+                {
+                    _currentPathCache = pathCache;
+                }
+                
+                _logger.LogInformation("Saved new path cache for window {Hwnd}", hwnd);
             }
             else
             {
@@ -285,18 +556,26 @@ public class CodeContextService : IDisposable
                 result.Symbols = ExtractSymbols(result.CodeContent);
             }
             
-            // Update our cached data
+            // Update per-project content cache
             if (result.Tabs.Count > 0 || result.ExplorerItems.Count > 0 || result.Symbols.Count > 0)
             {
-                UpdateFileNameQueue(result);
-                _cachedSymbols = result.Symbols.ToList();
+                UpdateContentCache(result);
                 _lastExtraction = DateTime.UtcNow;
                 
-                int totalFiles = _tabFileQueue.Count + _explorerFileQueue.Count;
-                _logger.LogInformation("Background extraction complete: {TabFiles} tab files, {ExplorerFiles} explorer files, {Symbols} symbols",
-                    _tabFileQueue.Count, _explorerFileQueue.Count, _cachedSymbols.Count);
-                
-                CacheLogger.LogExtraction("Background", totalFiles, _cachedSymbols.Count, 0);
+                var contentCache = _currentContentCache;
+                if (contentCache != null)
+                {
+                    _logger.LogInformation("Background extraction complete: {TabFiles} tab files, {ExplorerFiles} explorer files, {Symbols} symbols",
+                        contentCache.TabFiles.Count, contentCache.ExplorerFiles.Count, contentCache.Symbols.Count);
+                    
+                    CacheLogger.LogExtraction("Background", contentCache.TotalFileCount, contentCache.Symbols.Count, 0);
+                    
+                    // Save to disk if we have a project name
+                    if (!string.IsNullOrEmpty(projectName))
+                    {
+                        SaveProjectContentCache(projectName, contentCache);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -327,37 +606,37 @@ public class CodeContextService : IDisposable
     }
     
     /// <summary>
-    /// Checks if a supported code editor is currently the active window.
+    /// Checks if a supported code editor is currently in the FOREGROUND.
+    /// Uses fast GetForegroundWindow() check - no Process.GetProcesses() needed.
     /// </summary>
     public bool IsSupportedEditorActive()
     {
-        return FindSupportedEditorProcess() != null;
+        return GetForegroundEditorWindow() != IntPtr.Zero;
     }
     
     /// <summary>
     /// Gets code context formatted for LLM prompts (Polish/Code Dictation).
     /// Returns file names and symbols for the model to use when correcting transcriptions.
     /// Maximum 500 total: 100 file names, 400 symbols.
+    /// Only works when code editor is in FOREGROUND.
     /// </summary>
     public async Task<CodeContextForPrompt?> GetContextForPromptAsync()
     {
-        // GetKeywordsForDeepgramAsync already checks for supported editor internally
-        // This avoids duplicate Process.GetProcesses() calls
+        // GetKeywordsForDeepgramAsync already checks for foreground editor internally
         await GetKeywordsForDeepgramAsync();
         
-        int totalFiles = _tabFileQueue.Count + _explorerFileQueue.Count;
-        if (totalFiles == 0 && _cachedSymbols.Count == 0)
+        if (_currentContentCache == null || !_currentContentCache.HasContent)
             return null;
         
-        // Combine both queues: tabs first (higher priority), then explorer
-        var allFiles = _tabFileQueue.Concat(_explorerFileQueue).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Get all files from current project cache
+        var allFiles = _currentContentCache.GetAllFiles();
         
         // Get prioritized lists (uncommon words first)
         var files = PrioritizeUncommonWords(allFiles)
             .Take(MAX_PROMPT_FILES)
             .ToList();
         
-        var symbols = PrioritizeUncommonWords(_cachedSymbols)
+        var symbols = PrioritizeUncommonWords(_currentContentCache.Symbols)
             .Take(MAX_PROMPT_SYMBOLS)
             .ToList();
         
@@ -371,41 +650,65 @@ public class CodeContextService : IDisposable
     /// <summary>
     /// Gets file names WITH extensions for @ mention detection and Tab tagging.
     /// Only file names should trigger Tab autocomplete in AI chats.
+    /// Returns empty list if no code editor is in foreground.
     /// </summary>
     public List<string> GetFileNamesForMentions()
     {
-        // Tabs first, then explorer - tabs have higher priority for @ mentions
-        var result = _tabFileQueue.Concat(_explorerFileQueue).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        CacheLogger.Log($"GetFileNamesForMentions: {_tabFileQueue.Count} tabs, {_explorerFileQueue.Count} explorer -> {result.Count} total");
+        if (_currentContentCache == null)
+            return new List<string>();
+        
+        // Get files from current project cache: tabs first (higher priority), then explorer
+        var result = _currentContentCache.GetAllFiles();
+        CacheLogger.Log($"GetFileNamesForMentions: {_currentContentCache.TabFiles.Count} tabs, {_currentContentCache.ExplorerFiles.Count} explorer -> {result.Count} total");
         return result;
     }
     
     /// <summary>
-    /// Clears cached keywords to force a fresh extraction.
+    /// Clears all cached data for the current project.
     /// </summary>
     public void ClearCache()
     {
         lock (_lock)
         {
-            _tabFileQueue.Clear();
-            _explorerFileQueue.Clear();
-            _cachedSymbols.Clear();
-            CacheLogger.Log("ClearCache: Cleared all file queues and symbols");
+            // Clear current content cache
+            if (_currentContentCache != null)
+            {
+                _currentContentCache.TabFiles.Clear();
+                _currentContentCache.ExplorerFiles.Clear();
+                _currentContentCache.Symbols.Clear();
+            }
+            
+            // Clear current path cache
+            if (_currentPathCache != null && _currentWindowHandle != IntPtr.Zero)
+            {
+                _windowPathCaches.Remove(_currentWindowHandle);
+                _currentPathCache = new PathCache();
+                _windowPathCaches[_currentWindowHandle] = _currentPathCache;
+            }
+            
+            CacheLogger.Log("ClearCache: Cleared current project cache");
         }
         _lastExtraction = DateTime.MinValue;
-        PathCache.Delete(_processName ?? "");
     }
     
     /// <summary>
     /// Updates the file name queue with newly extracted files.
     /// Maintains separate queues for tabs and explorer files.
     /// </summary>
-    private void UpdateFileNameQueue(ExtractionResult result)
+    /// <summary>
+    /// Updates the current project's content cache with extracted results.
+    /// </summary>
+    private void UpdateContentCache(ExtractionResult result)
     {
+        if (_currentContentCache == null)
+            return;
+        
         lock (_lock)
         {
-            // Track all existing names for deduplication across both queues
-            var existingNames = new HashSet<string>(_tabFileQueue.Concat(_explorerFileQueue), StringComparer.OrdinalIgnoreCase);
+            // Track all existing names for deduplication
+            var existingNames = new HashSet<string>(
+                _currentContentCache.TabFiles.Concat(_currentContentCache.ExplorerFiles), 
+                StringComparer.OrdinalIgnoreCase);
             
             int tabsAdded = 0;
             int explorerAdded = 0;
@@ -416,7 +719,7 @@ public class CodeContextService : IDisposable
                 var fileName = ExtractFileName(tab);
                 if (!string.IsNullOrEmpty(fileName) && !existingNames.Contains(fileName))
                 {
-                    EnqueueFile(_tabFileQueue, fileName, MAX_FILE_QUEUE_SIZE / 2); // Half capacity for tabs
+                    AddToList(_currentContentCache.TabFiles, fileName, MAX_FILE_QUEUE_SIZE / 2);
                     existingNames.Add(fileName);
                     tabsAdded++;
                 }
@@ -428,51 +731,50 @@ public class CodeContextService : IDisposable
                 var fileName = ExtractFileName(item);
                 if (!string.IsNullOrEmpty(fileName) && !existingNames.Contains(fileName))
                 {
-                    EnqueueFile(_explorerFileQueue, fileName, MAX_FILE_QUEUE_SIZE / 2); // Half capacity for explorer
+                    AddToList(_currentContentCache.ExplorerFiles, fileName, MAX_FILE_QUEUE_SIZE / 2);
                     existingNames.Add(fileName);
                     explorerAdded++;
                 }
             }
             
-            CacheLogger.Log($"UpdateQueues: Added {tabsAdded} tabs (total {_tabFileQueue.Count}), {explorerAdded} explorer (total {_explorerFileQueue.Count})");
+            // Update symbols
+            if (result.Symbols.Count > 0)
+            {
+                _currentContentCache.Symbols = result.Symbols.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+            
+            CacheLogger.Log($"UpdateContentCache: Added {tabsAdded} tabs (total {_currentContentCache.TabFiles.Count}), {explorerAdded} explorer (total {_currentContentCache.ExplorerFiles.Count}), {_currentContentCache.Symbols.Count} symbols");
         }
     }
     
     /// <summary>
-    /// Adds a file to a queue, maintaining max size.
+    /// Adds a file to a list at the front, maintaining max size.
     /// </summary>
-    private void EnqueueFile(Queue<string> queue, string fileName, int maxSize)
+    private void AddToList(List<string> list, string fileName, int maxSize)
     {
-        // Create a new queue with the new file at front
-        var newQueue = new Queue<string>();
-        newQueue.Enqueue(fileName);
+        // Insert at front (most recent)
+        list.Insert(0, fileName);
         
-        // Add existing files
-        foreach (var existing in queue)
+        // Trim to max size
+        while (list.Count > maxSize)
         {
-            if (newQueue.Count >= maxSize)
-                break;
-            newQueue.Enqueue(existing);
-        }
-        
-        // Replace the queue contents
-        queue.Clear();
-        foreach (var f in newQueue)
-        {
-            queue.Enqueue(f);
+            list.RemoveAt(list.Count - 1);
         }
     }
     
     private List<string> BuildKeywordList()
     {
-        // Combine both queues: tabs first (higher priority), then explorer
-        var allFiles = _tabFileQueue.Concat(_explorerFileQueue).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (_currentContentCache == null)
+            return new List<string>();
         
-        CacheLogger.Log($"BuildKeywordList: {_tabFileQueue.Count} tab files, {_explorerFileQueue.Count} explorer files, {allFiles.Count} total unique");
+        // Combine tabs and explorer: tabs first (higher priority)
+        var allFiles = _currentContentCache.GetAllFiles();
+        
+        CacheLogger.Log($"BuildKeywordList: {_currentContentCache.TabFiles.Count} tab files, {_currentContentCache.ExplorerFiles.Count} explorer files, {allFiles.Count} total unique");
         
         // Prioritize uncommon words - Deepgram already knows common English
         var files = PrioritizeUncommonWords(allFiles);
-        var symbols = PrioritizeUncommonWords(_cachedSymbols);
+        var symbols = PrioritizeUncommonWords(_currentContentCache.Symbols);
         
         var keywords = new List<string>();
         
@@ -568,81 +870,6 @@ public class CodeContextService : IDisposable
         return fileName;
     }
     
-    private Process? FindSupportedEditorProcess()
-    {
-        // Use cached result if recent enough (avoids expensive Process.GetProcesses() calls)
-        if (_cachedEditorProcess != null && 
-            (DateTime.UtcNow - _lastProcessLookup).TotalMilliseconds < PROCESS_CACHE_MS)
-        {
-            // Verify process is still valid
-            try
-            {
-                if (!_cachedEditorProcess.HasExited && _cachedEditorProcess.MainWindowHandle != IntPtr.Zero)
-                {
-                    return _cachedEditorProcess;
-                }
-            }
-            catch
-            {
-                // Process may have exited, clear cache
-            }
-            _cachedEditorProcess = null;
-        }
-        
-        _lastProcessLookup = DateTime.UtcNow;
-        
-        // Get all processes once and search through them
-        Process[] allProcesses;
-        try
-        {
-            allProcesses = Process.GetProcesses();
-        }
-        catch
-        {
-            return null;
-        }
-        
-        try
-        {
-            foreach (var name in SupportedEditors)
-            {
-                var process = allProcesses
-                    .FirstOrDefault(p => 
-                    {
-                        try
-                        {
-                            return p.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase) 
-                                && p.MainWindowHandle != IntPtr.Zero;
-                        }
-                        catch
-                        {
-                            return false;
-                        }
-                    });
-                    
-                if (process != null)
-                {
-                    _cachedEditorProcess = process;
-                    return process;
-                }
-            }
-        }
-        finally
-        {
-            // Dispose processes we don't need (but not the one we're returning)
-            foreach (var p in allProcesses)
-            {
-                if (p != _cachedEditorProcess)
-                {
-                    try { p.Dispose(); } catch { }
-                }
-            }
-        }
-        
-        _cachedEditorProcess = null;
-        return null;
-    }
-    
     /// <summary>
     /// Validates the cache with 3-tier validation:
     /// Tier 1: Tab container (most important)
@@ -653,7 +880,7 @@ public class CodeContextService : IDisposable
     /// </summary>
     private CacheStatus ValidateCache(IAccessible root)
     {
-        if (_cache == null)
+        if (_currentPathCache == null)
             return CacheStatus.NotFound;
         
         bool tabsValid = false;
@@ -661,9 +888,9 @@ public class CodeContextService : IDisposable
         bool codeValid = false;
         
         // Tier 1: Validate TabContainerPath (most important)
-        if (_cache.TabContainerPath != null)
+        if (_currentPathCache.TabContainerPath != null)
         {
-            var tabContainer = NavigateToPath(root, _cache.TabContainerPath);
+            var tabContainer = NavigateToPath(root, _currentPathCache.TabContainerPath);
             if (tabContainer != null && ValidateContainerHasChildRole(tabContainer, ROLE_PAGETAB))
             {
                 tabsValid = true;
@@ -671,9 +898,9 @@ public class CodeContextService : IDisposable
         }
         
         // Tier 2: Validate ExplorerContainerPath
-        if (_cache.ExplorerContainerPath != null)
+        if (_currentPathCache.ExplorerContainerPath != null)
         {
-            var explorerContainer = NavigateToPath(root, _cache.ExplorerContainerPath);
+            var explorerContainer = NavigateToPath(root, _currentPathCache.ExplorerContainerPath);
             if (explorerContainer != null && ValidateContainerHasChildRole(explorerContainer, ROLE_OUTLINEITEM))
             {
                 explorerValid = true;
@@ -682,9 +909,9 @@ public class CodeContextService : IDisposable
         
         // Tier 3: Code editor (very lenient - just check path exists and has children)
         // Note: CodeEditorPath points to the parent of the TEXT node, so we can SearchForCode from it
-        if (_cache.CodeEditorPath != null)
+        if (_currentPathCache.CodeEditorPath != null)
         {
-            var codeArea = NavigateToPath(root, _cache.CodeEditorPath);
+            var codeArea = NavigateToPath(root, _currentPathCache.CodeEditorPath);
             if (codeArea != null)
             {
                 int childCount = 0;
@@ -704,45 +931,45 @@ public class CodeContextService : IDisposable
         // Determine status based on tabs (most critical)
         if (tabsValid)
         {
-            _cache.ValidationFailures = 0;
-            _cache.LastValidated = DateTime.UtcNow;
+            _currentPathCache.ValidationFailures = 0;
+            _currentPathCache.LastValidated = DateTime.UtcNow;
             CacheLogger.LogValidation(CacheStatus.Valid, details);
             return CacheStatus.Valid;
         }
         
         // Tabs failed - apply 3-strikes rule
-        _cache.ValidationFailures++;
-        CacheLogger.Log($"Validation failure #{_cache.ValidationFailures} - {details}");
+        _currentPathCache.ValidationFailures++;
+        CacheLogger.Log($"Validation failure #{_currentPathCache.ValidationFailures} - {details}");
         
-        if (_cache.ValidationFailures >= 3)
+        if (_currentPathCache.ValidationFailures >= 3)
         {
             CacheLogger.LogValidation(CacheStatus.Invalid, $"{details} - 3 strikes, invalidating cache");
             return CacheStatus.Invalid;
         }
         
-        CacheLogger.LogValidation(CacheStatus.PartiallyValid, $"{details} - Strike {_cache.ValidationFailures}");
+        CacheLogger.LogValidation(CacheStatus.PartiallyValid, $"{details} - Strike {_currentPathCache.ValidationFailures}");
         return CacheStatus.PartiallyValid;
     }
     
     private bool TryExtractWithCache(IAccessible root, ExtractionResult result)
     {
-        if (_cache == null)
+        if (_currentPathCache == null)
         {
             CacheLogger.Log("TryExtractWithCache: No cache available");
             return false;
         }
         
-        CacheLogger.Log($"TryExtractWithCache: TabPath={_cache.TabContainerPath != null}, ExplorerPath={_cache.ExplorerContainerPath != null}, CodePath={_cache.CodeEditorPath != null}");
+        CacheLogger.Log($"TryExtractWithCache: TabPath={_currentPathCache.TabContainerPath != null}, ExplorerPath={_currentPathCache.ExplorerContainerPath != null}, CodePath={_currentPathCache.CodeEditorPath != null}");
         
         bool anyValidPath = false;
         
         try
         {
             // Extract tabs - validate that the container actually has PAGETAB children
-            if (_cache.TabContainerPath != null)
+            if (_currentPathCache.TabContainerPath != null)
             {
-                CacheLogger.Log($"TryExtractWithCache: Navigating to tab path [{string.Join(",", _cache.TabContainerPath)}]");
-                var tabContainer = NavigateToPath(root, _cache.TabContainerPath);
+                CacheLogger.Log($"TryExtractWithCache: Navigating to tab path [{string.Join(",", _currentPathCache.TabContainerPath)}]");
+                var tabContainer = NavigateToPath(root, _currentPathCache.TabContainerPath);
                 if (tabContainer != null)
                 {
                     CacheLogger.Log("TryExtractWithCache: Tab container found, validating...");
@@ -759,7 +986,7 @@ public class CodeContextService : IDisposable
                     {
                         CacheLogger.Log("TryExtractWithCache: Tab container INVALID - children are not PAGETABs");
                         _logger.LogDebug("Tab container cache invalid - children are not PAGETABs");
-                        _cache.TabContainerPath = null; // Invalidate this path
+                        _currentPathCache.TabContainerPath = null; // Invalidate this path
                     }
                 }
                 else
@@ -773,10 +1000,10 @@ public class CodeContextService : IDisposable
             }
             
             // Extract explorer items - validate that the container has OUTLINEITEM children
-            if (_cache.ExplorerContainerPath != null)
+            if (_currentPathCache.ExplorerContainerPath != null)
             {
-                CacheLogger.Log($"TryExtractWithCache: Navigating to explorer path [{string.Join(",", _cache.ExplorerContainerPath)}]");
-                var explorerContainer = NavigateToPath(root, _cache.ExplorerContainerPath);
+                CacheLogger.Log($"TryExtractWithCache: Navigating to explorer path [{string.Join(",", _currentPathCache.ExplorerContainerPath)}]");
+                var explorerContainer = NavigateToPath(root, _currentPathCache.ExplorerContainerPath);
                 if (explorerContainer != null)
                 {
                     CacheLogger.Log("TryExtractWithCache: Explorer container found, validating...");
@@ -793,7 +1020,7 @@ public class CodeContextService : IDisposable
                     {
                         CacheLogger.Log("TryExtractWithCache: Explorer container INVALID - children are not OUTLINEITEMs");
                         _logger.LogDebug("Explorer container cache invalid - children are not OUTLINEITEMs");
-                        _cache.ExplorerContainerPath = null; // Invalidate this path
+                        _currentPathCache.ExplorerContainerPath = null; // Invalidate this path
                     }
                 }
                 else
@@ -807,9 +1034,9 @@ public class CodeContextService : IDisposable
             }
             
             // Extract code using SearchForCode (recursive, more resilient)
-            if (_cache.CodeEditorPath != null)
+            if (_currentPathCache.CodeEditorPath != null)
             {
-                var codeArea = NavigateToPath(root, _cache.CodeEditorPath);
+                var codeArea = NavigateToPath(root, _currentPathCache.CodeEditorPath);
                 if (codeArea != null)
                 {
                     // Use recursive search from cached parent path
@@ -822,9 +1049,9 @@ public class CodeContextService : IDisposable
             }
             
             // Fallback: search from tab container parent if code not found
-            if (string.IsNullOrEmpty(result.CodeContent) && _cache.TabContainerPath != null && _cache.TabContainerPath.Length > 1)
+            if (string.IsNullOrEmpty(result.CodeContent) && _currentPathCache.TabContainerPath != null && _currentPathCache.TabContainerPath.Length > 1)
             {
-                var parentPath = _cache.TabContainerPath.Take(_cache.TabContainerPath.Length - 1).ToArray();
+                var parentPath = _currentPathCache.TabContainerPath.Take(_currentPathCache.TabContainerPath.Length - 1).ToArray();
                 var parent = NavigateToPath(root, parentPath);
                 if (parent != null)
                 {
@@ -1370,14 +1597,20 @@ public class CodeContextService : IDisposable
             return;
         }
         
-        var process = FindSupportedEditorProcess();
+        if (!SwitchToCurrentWindowContext())
+        {
+            CacheLogger.Log("DumpTree: No supported editor in foreground");
+            return;
+        }
+        
+        var process = GetCurrentEditorProcess();
         if (process == null)
         {
             CacheLogger.Log("DumpTree: No supported editor process found");
             return;
         }
         
-        var hwnd = process.MainWindowHandle;
+        var hwnd = _currentWindowHandle;
         int hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref IID_IAccessible, out object accObj);
         if (hr != 0 || accObj == null)
         {
@@ -1496,10 +1729,15 @@ public class CodeContextService : IDisposable
     
     public void Dispose()
     {
-        _cache = null;
-        _tabFileQueue.Clear();
-        _explorerFileQueue.Clear();
-        _cachedSymbols.Clear();
+        // Clear all runtime caches
+        _windowPathCaches.Clear();
+        _projectContentCaches.Clear();
+        _knownEditorWindows.Clear();
+        
+        _currentPathCache = null;
+        _currentContentCache = null;
+        _currentWindowHandle = IntPtr.Zero;
+        _currentProjectName = null;
     }
     
     #region P/Invoke
@@ -1584,4 +1822,36 @@ public class CodeContextForPrompt
         
         return sb.ToString();
     }
+}
+
+/// <summary>
+/// Per-project content cache for files and symbols.
+/// Persisted to disk for fast restoration across app restarts.
+/// </summary>
+internal class ProjectContentCache
+{
+    public List<string> TabFiles { get; set; } = new();
+    public List<string> ExplorerFiles { get; set; } = new();
+    public List<string> Symbols { get; set; } = new();
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+    
+    /// <summary>
+    /// Gets all files (tabs first, then explorer) without duplicates.
+    /// </summary>
+    public List<string> GetAllFiles()
+    {
+        return TabFiles.Concat(ExplorerFiles)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+    
+    /// <summary>
+    /// Total file count across both queues.
+    /// </summary>
+    public int TotalFileCount => TabFiles.Count + ExplorerFiles.Count;
+    
+    /// <summary>
+    /// Checks if this cache has any content.
+    /// </summary>
+    public bool HasContent => TabFiles.Count > 0 || ExplorerFiles.Count > 0 || Symbols.Count > 0;
 }

@@ -1,0 +1,132 @@
+<Window x:Class="WisperFlow.FloatingTranscriptWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Transcript Preview"
+        Width="500" Height="120"
+        MinWidth="300" MaxWidth="700"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Focusable="False"
+        ShowActivated="False"
+        WindowStartupLocation="Manual">
+    
+    <Window.Resources>
+        <!-- Fade in animation -->
+        <Storyboard x:Key="FadeInAnimation">
+            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                           Storyboard.TargetProperty="Opacity"
+                           From="0" To="1" Duration="0:0:0.3">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="MainBorderTransform"
+                           Storyboard.TargetProperty="Y"
+                           From="-10" To="0" Duration="0:0:0.3">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Fade out animation -->
+        <Storyboard x:Key="FadeOutAnimation">
+            <DoubleAnimation Storyboard.TargetName="MainBorder"
+                           Storyboard.TargetProperty="Opacity"
+                           From="1" To="0" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseIn"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="MainBorderTransform"
+                           Storyboard.TargetProperty="Y"
+                           From="0" To="10" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseIn"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Cursor blink animation -->
+        <Storyboard x:Key="CursorBlinkAnimation" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetName="TypingCursor"
+                           Storyboard.TargetProperty="Opacity"
+                           From="1" To="0" Duration="0:0:0.5"
+                           AutoReverse="True"/>
+        </Storyboard>
+    </Window.Resources>
+    
+    <Border x:Name="MainBorder" 
+            Background="#F0121820" 
+            CornerRadius="16" 
+            Padding="20,16"
+            Opacity="0">
+        <Border.RenderTransform>
+            <TranslateTransform x:Name="MainBorderTransform" Y="-10"/>
+        </Border.RenderTransform>
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="30" Opacity="0.6" ShadowDepth="4"/>
+        </Border.Effect>
+        
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header with status indicator -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                <!-- Live indicator dot -->
+                <Ellipse x:Name="LiveDot" Width="8" Height="8" Fill="#00d4aa" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StatusText" Text="Listening..." 
+                           Foreground="#64ffda" FontFamily="Segoe UI" FontSize="11" FontWeight="Medium"
+                           VerticalAlignment="Center" Opacity="0.8"/>
+            </StackPanel>
+            
+            <!-- Transcript text area -->
+            <Grid Grid.Row="1">
+                <ScrollViewer x:Name="TranscriptScroller" 
+                              VerticalScrollBarVisibility="Hidden" 
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="TranscriptText" 
+                                   Text="" 
+                                   Foreground="#e6f1ff" 
+                                   FontFamily="Cascadia Code, Consolas, Segoe UI" 
+                                   FontSize="15" 
+                                   FontWeight="Normal"
+                                   TextWrapping="Wrap"
+                                   LineHeight="22"
+                                   VerticalAlignment="Top"/>
+                        <!-- Animated typing cursor -->
+                        <Border x:Name="TypingCursor" 
+                                Width="2" Height="18" 
+                                Background="#64ffda" 
+                                VerticalAlignment="Top"
+                                Margin="1,2,0,0"
+                                CornerRadius="1"/>
+                    </StackPanel>
+                </ScrollViewer>
+                
+                <!-- "Processing" overlay for Matrix effect -->
+                <Border x:Name="MatrixOverlay" 
+                        Background="#121820" 
+                        CornerRadius="4"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="MatrixText" 
+                               Text="" 
+                               Foreground="#00d4aa" 
+                               FontFamily="Cascadia Code, Consolas" 
+                               FontSize="15"
+                               TextWrapping="Wrap"
+                               LineHeight="22"
+                               VerticalAlignment="Top"/>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

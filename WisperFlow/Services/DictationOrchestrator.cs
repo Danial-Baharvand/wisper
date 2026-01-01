@@ -17,6 +17,7 @@ public class DictationOrchestrator
     private readonly AudioRecorder _audioRecorder;
     private readonly TextInjector _textInjector;
     private readonly OverlayWindow _overlayWindow;
+    private readonly FloatingTranscriptWindow _floatingTranscriptWindow;  // Real-time transcript preview
     private readonly SettingsManager _settingsManager;
     private readonly ServiceFactory _serviceFactory;
     private readonly CodeContextService _codeContextService;
@@ -41,6 +42,7 @@ public class DictationOrchestrator
         AudioRecorder audioRecorder,
         TextInjector textInjector,
         OverlayWindow overlayWindow,
+        FloatingTranscriptWindow floatingTranscriptWindow,
         SettingsManager settingsManager,
         ServiceFactory serviceFactory,
         CodeContextService codeContextService,
@@ -50,6 +52,7 @@ public class DictationOrchestrator
         _audioRecorder = audioRecorder;
         _textInjector = textInjector;
         _overlayWindow = overlayWindow;
+        _floatingTranscriptWindow = floatingTranscriptWindow;
         _settingsManager = settingsManager;
         _serviceFactory = serviceFactory;
         _codeContextService = codeContextService;
@@ -222,6 +225,13 @@ public class DictationOrchestrator
                             }
                         }
                         
+                        // Subscribe to streaming events for real-time UI
+                        _streamingService.OnTranscriptUpdate += OnTranscriptUpdateReceived;
+                        _streamingService.OnUtteranceEnd += OnUtteranceEndReceived;
+                        
+                        // Reset floating transcript window for new session
+                        _floatingTranscriptWindow.Reset();
+                        
                         // This returns immediately - connection happens in background
                         // Audio is buffered until connection completes
                         _streamingService.StartStreamingAsync(
@@ -272,6 +282,38 @@ public class DictationOrchestrator
             }
         }
     }
+    
+    /// <summary>
+    /// Called when a transcript update is received from Deepgram (interim or final).
+    /// Shows it in the floating transcript window in real-time.
+    /// </summary>
+    private void OnTranscriptUpdateReceived(string text, bool isFinal)
+    {
+        try
+        {
+            _floatingTranscriptWindow.UpdateTranscript(text, isFinal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update floating transcript window");
+        }
+    }
+    
+    /// <summary>
+    /// Called when Deepgram signals end of utterance (speech stopped).
+    /// Updates the floating window to show "Ready" status.
+    /// </summary>
+    private void OnUtteranceEndReceived()
+    {
+        try
+        {
+            _floatingTranscriptWindow.ShowUtteranceComplete();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to update utterance end status");
+        }
+    }
 
     private async void OnRecordStop(object? sender, EventArgs e)
     {
@@ -281,6 +323,12 @@ public class DictationOrchestrator
         
         // Set flag immediately to prevent any race conditions
         _isProcessing = true;
+
+        // Start Matrix effect on the floating transcript window (if streaming was active)
+        if (_isStreamingActive)
+        {
+            _floatingTranscriptWindow.StartMatrixEffect();
+        }
 
         // Unsubscribe from audio events
         _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
@@ -308,9 +356,20 @@ public class DictationOrchestrator
     private void CleanupStreaming()
     {
         _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
+        
+        // Unsubscribe from streaming events
+        if (_streamingService != null)
+        {
+            _streamingService.OnTranscriptUpdate -= OnTranscriptUpdateReceived;
+            _streamingService.OnUtteranceEnd -= OnUtteranceEndReceived;
+        }
+        
         _streamingService?.Dispose();
         _streamingService = null;
         _isStreamingActive = false;
+        
+        // Hide floating window (it may have already faded out via Matrix effect)
+        _floatingTranscriptWindow.HideImmediate();
     }
     
     private async Task ProcessStreamingRecordingAsync(string audioFilePath)
