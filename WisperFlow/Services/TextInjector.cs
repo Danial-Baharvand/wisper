@@ -159,17 +159,26 @@ public class TextInjector
     
     /// <summary>
     /// Sets clipboard text using Win32 APIs for more control.
+    /// Uses exponential backoff: 15 attempts, ~1.5s total max wait.
     /// </summary>
     private bool SetClipboardWin32(string text)
     {
         const uint CF_UNICODETEXT = 13;
+        const int MaxAttempts = 15;
+        int delayMs = 20; // Starting delay, will double each time (exponential backoff)
         
-        // Retry loop
-        for (int attempt = 0; attempt < 10; attempt++)
+        for (int attempt = 0; attempt < MaxAttempts; attempt++)
         {
             if (!OpenClipboard(IntPtr.Zero))
             {
-                Thread.Sleep(20);
+                // Log who's blocking the clipboard on first and every 5th failure
+                if (attempt == 0 || attempt % 5 == 0)
+                {
+                    LogClipboardBlocker(attempt);
+                }
+                
+                Thread.Sleep(delayMs);
+                delayMs = Math.Min(delayMs * 2, 200); // Cap at 200ms
                 continue;
             }
             
@@ -206,6 +215,10 @@ public class TextInjector
                 
                 if (result != IntPtr.Zero)
                 {
+                    if (attempt > 0)
+                    {
+                        _logger.LogDebug("Clipboard acquired after {Attempts} attempts", attempt + 1);
+                    }
                     return true; // Success!
                 }
                 
@@ -217,11 +230,49 @@ public class TextInjector
                 CloseClipboard();
             }
             
-            Thread.Sleep(20);
+            Thread.Sleep(delayMs);
+            delayMs = Math.Min(delayMs * 2, 200);
         }
         
-        _logger.LogWarning("SetClipboardWin32 failed after 10 attempts");
+        _logger.LogWarning("SetClipboardWin32 failed after {Attempts} attempts", MaxAttempts);
+        LogClipboardBlocker(MaxAttempts);
         return false;
+    }
+    
+    /// <summary>
+    /// Logs information about which process is holding the clipboard.
+    /// </summary>
+    private void LogClipboardBlocker(int attempt)
+    {
+        try
+        {
+            IntPtr hwnd = GetOpenClipboardWindow();
+            if (hwnd == IntPtr.Zero)
+            {
+                _logger.LogDebug("Clipboard blocked (attempt {Attempt}) but no window is holding it", attempt);
+                return;
+            }
+            
+            GetWindowThreadProcessId(hwnd, out int processId);
+            if (processId > 0)
+            {
+                try
+                {
+                    var process = System.Diagnostics.Process.GetProcessById(processId);
+                    _logger.LogWarning("Clipboard blocked (attempt {Attempt}) by process: {ProcessName} (PID: {PID})", 
+                        attempt, process.ProcessName, processId);
+                }
+                catch
+                {
+                    _logger.LogWarning("Clipboard blocked (attempt {Attempt}) by unknown process (PID: {PID})", 
+                        attempt, processId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to identify clipboard blocker");
+        }
     }
     
     /// <summary>
@@ -280,50 +331,34 @@ public class TextInjector
 
         _logger.LogInformation("Injecting text, length: {Length} chars", text.Length);
 
-        object? originalClipboard = null;
-        bool hadOriginalContent = false;
+        string? originalClipboard = null;
 
         try
         {
-            // Save original clipboard
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                try
-                {
-                    if (Clipboard.ContainsText())
-                    {
-                        originalClipboard = Clipboard.GetText();
-                        hadOriginalContent = true;
-                    }
-                }
-                catch { }
-            });
+            // Save original clipboard using Win32 for reliability
+            originalClipboard = GetClipboardTextWin32();
 
             await Task.Delay(ClipboardDelayMs, cancellationToken);
 
-            // Set clipboard to our text
-            bool clipboardSet = false;
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                for (int attempt = 0; attempt < 5; attempt++)
-                {
-                    try
-                    {
-                        Clipboard.SetText(text);
-                        clipboardSet = true;
-                        break;
-                    }
-                    catch (ExternalException)
-                    {
-                        Thread.Sleep(50);
-                    }
-                }
-            });
+            // Set clipboard using Win32 API with exponential backoff
+            bool clipboardSet = SetClipboardWin32(text);
 
             if (!clipboardSet)
             {
-                _logger.LogError("Failed to set clipboard");
-                return;
+                _logger.LogWarning("Clipboard unavailable, attempting SendInput fallback for {Len} chars", text.Length);
+                
+                // Fallback: Use SendInput to type the text directly
+                if (text.Length <= SendInputMaxLength)
+                {
+                    await TypeTextViaSendInputAsync(text, cancellationToken);
+                    _logger.LogInformation("Text injected via SendInput fallback");
+                    return;
+                }
+                else
+                {
+                    _logger.LogError("Failed to set clipboard and text too long for SendInput fallback ({Len} chars)", text.Length);
+                    return;
+                }
             }
 
             await Task.Delay(ClipboardDelayMs, cancellationToken);
@@ -351,14 +386,10 @@ public class TextInjector
             await Task.Delay(PasteDelayMs, cancellationToken);
 
             // Restore original clipboard
-            if (hadOriginalContent && originalClipboard is string origText)
+            if (!string.IsNullOrEmpty(originalClipboard))
             {
-                await Task.Delay(100, cancellationToken);  // Reduced from 200ms
-                await Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    try { Clipboard.SetText(origText); }
-                    catch { }
-                });
+                await Task.Delay(100, cancellationToken);
+                SetClipboardWin32(originalClipboard);
                 _logger.LogDebug("Original clipboard restored");
             }
         }
@@ -369,6 +400,92 @@ public class TextInjector
             throw;
         }
     }
+    
+    /// <summary>
+    /// Gets clipboard text using Win32 APIs.
+    /// </summary>
+    private string? GetClipboardTextWin32()
+    {
+        const uint CF_UNICODETEXT = 13;
+        
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            if (!OpenClipboard(IntPtr.Zero))
+            {
+                Thread.Sleep(20);
+                continue;
+            }
+            
+            try
+            {
+                IntPtr hData = GetClipboardData(CF_UNICODETEXT);
+                if (hData == IntPtr.Zero)
+                {
+                    CloseClipboard();
+                    return null;
+                }
+                
+                IntPtr pData = GlobalLock(hData);
+                if (pData == IntPtr.Zero)
+                {
+                    CloseClipboard();
+                    return null;
+                }
+                
+                string? text = Marshal.PtrToStringUni(pData);
+                GlobalUnlock(hData);
+                CloseClipboard();
+                return text;
+            }
+            catch
+            {
+                CloseClipboard();
+            }
+        }
+        
+        return null;
+    }
+    
+    // Maximum text length for SendInput fallback (typing is slow, so limit it)
+    private const int SendInputMaxLength = 500;
+    
+    /// <summary>
+    /// Types text character by character using SendInput.
+    /// Slower but works even when clipboard is locked.
+    /// </summary>
+    private async Task TypeTextViaSendInputAsync(string text, CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Typing {Len} chars via SendInput", text.Length);
+        
+        foreach (char c in text)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            // Use KEYEVENTF_UNICODE to send the character directly
+            var inputs = new INPUT[2];
+            
+            // Key down
+            inputs[0].type = INPUT_KEYBOARD;
+            inputs[0].U.ki.wVk = 0;
+            inputs[0].U.ki.wScan = c;
+            inputs[0].U.ki.dwFlags = KEYEVENTF_UNICODE;
+            inputs[0].U.ki.time = 0;
+            inputs[0].U.ki.dwExtraInfo = UIntPtr.Zero;
+            
+            // Key up
+            inputs[1].type = INPUT_KEYBOARD;
+            inputs[1].U.ki.wVk = 0;
+            inputs[1].U.ki.wScan = c;
+            inputs[1].U.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            inputs[1].U.ki.time = 0;
+            inputs[1].U.ki.dwExtraInfo = UIntPtr.Zero;
+            
+            SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+            
+            // Small delay between characters (1ms) to avoid overwhelming the target app
+            await Task.Delay(1, cancellationToken);
+        }
+    }
 
     #region Native Methods
 
@@ -376,7 +493,9 @@ public class TextInjector
     private const byte VK_V = 0x56;
     private const byte VK_TAB = 0x09;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_UNICODE = 0x0004;
     private const uint GMEM_MOVEABLE = 0x0002;
+    private const int INPUT_KEYBOARD = 1;
 
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
@@ -394,6 +513,15 @@ public class TextInjector
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
     
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetClipboardData(uint uFormat);
+    
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetOpenClipboardWindow();
+    
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
+    
     // Memory APIs for clipboard
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
@@ -406,6 +534,33 @@ public class TextInjector
     
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr GlobalFree(IntPtr hMem);
+    
+    // SendInput for fallback typing
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public int type;
+        public INPUTUNION U;
+    }
+    
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+    
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
 
     #endregion
 }
