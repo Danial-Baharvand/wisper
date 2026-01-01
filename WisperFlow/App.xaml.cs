@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Extensions.Logging;
 using WisperFlow.Services;
+using WisperFlow.Services.CodeContext;
 
 namespace WisperFlow;
 
@@ -17,6 +18,7 @@ public partial class App : Application
     private OverlayWindow? _overlayWindow;
     private ModelManager? _modelManager;
     private ServiceFactory? _serviceFactory;
+    private CodeContextService? _codeContextService;
     private ILogger<App>? _logger;
     private ILoggerFactory? _loggerFactory;
     private DictationOrchestrator? _orchestrator;
@@ -157,7 +159,8 @@ public partial class App : Application
         var settings = _settingsManager.LoadSettings();
 
         _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
-        _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager, _settingsManager);
+        _codeContextService = new CodeContextService(_loggerFactory!.CreateLogger<CodeContextService>());
+        _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager, _settingsManager, _codeContextService);
         
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());
@@ -171,6 +174,7 @@ public partial class App : Application
             _overlayWindow,
             _settingsManager,
             _serviceFactory,
+            _codeContextService,
             _loggerFactory!.CreateLogger<DictationOrchestrator>());
 
         _trayIconManager = new TrayIconManager(_settingsManager, _orchestrator,
@@ -189,6 +193,7 @@ public partial class App : Application
         _trayIconManager?.Dispose();
         _hotkeyManager?.Dispose();
         _audioRecorder?.Dispose();
+        _codeContextService?.Dispose();
         _overlayWindow?.Close();
         _loggerFactory?.Dispose();
         base.OnExit(e);

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.CodeContext;
 using WisperFlow.Services.CodeDictation;
 using WisperFlow.Services.Polish;
 using WisperFlow.Services.Transcription;
@@ -14,12 +15,14 @@ public class ServiceFactory
     private readonly ILoggerFactory _loggerFactory;
     private readonly ModelManager _modelManager;
     private readonly SettingsManager _settingsManager;
+    private readonly CodeContextService? _codeContextService;
 
-    public ServiceFactory(ILoggerFactory loggerFactory, ModelManager modelManager, SettingsManager settingsManager)
+    public ServiceFactory(ILoggerFactory loggerFactory, ModelManager modelManager, SettingsManager settingsManager, CodeContextService? codeContextService = null)
     {
         _loggerFactory = loggerFactory;
         _modelManager = modelManager;
         _settingsManager = settingsManager;
+        _codeContextService = codeContextService;
     }
 
     public ITranscriptionService CreateTranscriptionService(string modelId)
@@ -66,7 +69,8 @@ public class ServiceFactory
                 _loggerFactory.CreateLogger<OpenAIPolishService>(), 
                 modelId,
                 customTypingPrompt,
-                customNotesPrompt);
+                customNotesPrompt,
+                _codeContextService);
         }
 
         if (model.Source == ModelSource.Cerebras)
@@ -75,7 +79,8 @@ public class ServiceFactory
                 _loggerFactory.CreateLogger<CerebrasPolishService>(),
                 modelId,
                 customTypingPrompt,
-                customNotesPrompt);
+                customNotesPrompt,
+                _codeContextService);
         }
 
         if (model.Id == "polish-disabled")

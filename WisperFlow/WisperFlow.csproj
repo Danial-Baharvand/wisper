@@ -34,12 +34,15 @@
     <!-- Local LLM for offline polish -->
     <PackageReference Include="LLamaSharp" Version="0.25.0" />
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.25.0" />
+    <!-- English dictionary for filtering common words -->
+    <PackageReference Include="WeCantSpell.Hunspell" Version="5.2.0" />
   </ItemGroup>
 
   <!-- UI Automation for detecting text input focus -->
   <ItemGroup>
     <Reference Include="UIAutomationClient" />
     <Reference Include="UIAutomationTypes" />
+    <Reference Include="Accessibility" />
   </ItemGroup>
 
   <ItemGroup>

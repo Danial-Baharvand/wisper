@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using WisperFlow.Services.CodeContext;
 
 namespace WisperFlow.Services.Polish;
 
@@ -17,6 +18,7 @@ public class OpenAIPolishService : IPolishService
     private readonly string _apiModelName;
     private readonly string? _customTypingPrompt;
     private readonly string? _customNotesPrompt;
+    private readonly CodeContextService? _codeContextService;
     private const string Endpoint = "https://api.openai.com/v1/chat/completions";
 
     /// <summary>
@@ -99,13 +101,14 @@ Return ONLY the formatted text, nothing else.";
     /// </summary>
     public string NotesPrompt => string.IsNullOrWhiteSpace(_customNotesPrompt) ? DefaultNotesPrompt : _customNotesPrompt;
 
-    public OpenAIPolishService(ILogger logger, string modelId = "openai-gpt4o-mini", string? customTypingPrompt = null, string? customNotesPrompt = null)
+    public OpenAIPolishService(ILogger logger, string modelId = "openai-gpt4o-mini", string? customTypingPrompt = null, string? customNotesPrompt = null, CodeContextService? codeContextService = null)
     {
         _logger = logger;
         _modelId = modelId;
         _apiModelName = GetApiModelName(modelId);
         _customTypingPrompt = customTypingPrompt;
         _customNotesPrompt = customNotesPrompt;
+        _codeContextService = codeContextService;
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     }
     
@@ -164,10 +167,17 @@ Return ONLY the formatted text, nothing else.";
 
         try
         {
+            // Get code context if available
+            var codeContext = await GetCodeContextAsync();
+            var systemPrompt = (notesMode ? NotesPrompt : TypingPrompt) + (codeContext ?? "");
+            
+            // Use higher max_tokens when code context is included
+            var maxTokens = codeContext != null ? 1200 : 600;
+            
             var requestBody = BuildRequestBody(
-                notesMode ? NotesPrompt : TypingPrompt,
+                systemPrompt,
                 rawText,
-                maxTokens: 600,
+                maxTokens: maxTokens,
                 temperature: 0.1
             );
 
@@ -187,14 +197,16 @@ Return ONLY the formatted text, nothing else.";
 
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(responseJson);
-            var result = doc.RootElement
-                .GetProperty("choices")[0]
+            
+            var choice = doc.RootElement.GetProperty("choices")[0];
+            var finishReason = choice.TryGetProperty("finish_reason", out var fr) ? fr.GetString() : "unknown";
+            var result = choice
                 .GetProperty("message")
                 .GetProperty("content")
                 .GetString() ?? rawText;
 
             result = result.Trim().Trim('"');
-            _logger.LogInformation("Polish complete: {Len} chars", result.Length);
+            _logger.LogInformation("Polish complete: {Len} chars, finish: {Reason}", result.Length, finishReason);
             return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -202,6 +214,33 @@ Return ONLY the formatted text, nothing else.";
             _logger.LogWarning(ex, "Polish failed, returning raw text");
             return rawText;
         }
+    }
+    
+    /// <summary>
+    /// Gets code context from the active editor if available.
+    /// </summary>
+    private async Task<string?> GetCodeContextAsync()
+    {
+        if (_codeContextService == null)
+            return null;
+        
+        try
+        {
+            var context = await _codeContextService.GetContextForPromptAsync();
+            if (context != null)
+            {
+                var contextString = context.ToPromptString();
+                _logger.LogInformation("Including code context: {Files} files, {Symbols} symbols", 
+                    context.FileNames.Count, context.Symbols.Count);
+                return contextString;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get code context");
+        }
+        
+        return null;
     }
 
     public async Task<string> TransformAsync(string originalText, string command, CancellationToken cancellationToken = default)

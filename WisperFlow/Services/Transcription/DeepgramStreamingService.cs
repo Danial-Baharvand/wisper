@@ -2,8 +2,10 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.CodeContext;
 using AppModelInfo = WisperFlow.Models.ModelInfo;
 
 namespace WisperFlow.Services.Transcription;
@@ -64,7 +66,10 @@ public class DeepgramStreamingService : ITranscriptionService
     /// Start streaming transcription - returns immediately, connection happens in background.
     /// Audio chunks sent before connection completes are buffered and sent once connected.
     /// </summary>
-    public void StartStreamingAsync(string? language = null, CancellationToken cancellationToken = default)
+    /// <param name="language">Language code for transcription</param>
+    /// <param name="dynamicKeywords">Optional keywords from code context (file names, symbols)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public void StartStreamingAsync(string? language = null, IEnumerable<string>? dynamicKeywords = null, CancellationToken cancellationToken = default)
     {
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -115,13 +120,65 @@ public class DeepgramStreamingService : ITranscriptionService
             }
         }
         
-        // Keyword boosting
+        // Keyword boosting - combine settings keywords with dynamic keywords from code context
+        var allKeywords = new List<string>();
+        
+        // Add settings-based keywords first (these bypass the English filter)
         if (!string.IsNullOrWhiteSpace(_settings.DeepgramKeywords))
         {
-            foreach (var keyword in _settings.DeepgramKeywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            allKeywords.AddRange(_settings.DeepgramKeywords.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+        
+        // Add dynamic keywords from code context, but only non-English words
+        if (dynamicKeywords != null)
+        {
+            foreach (var keyword in dynamicKeywords)
             {
-                queryParams.Add($"keywords={Uri.EscapeDataString(keyword)}");
+                if (string.IsNullOrWhiteSpace(keyword) || keyword.Length < 2)
+                    continue;
+                
+                // Check if this keyword contains any non-English parts
+                if (ContainsNonEnglishPart(keyword))
+                {
+                    allKeywords.Add(keyword);
+                }
             }
+        }
+        
+        // Deduplicate and limit by total token count (Deepgram limits to 500 tokens total)
+        // Be conservative - use max 300 tokens to account for tokenization differences
+        var uniqueKeywords = new List<string>();
+        int totalTokens = 0;
+        const int maxTokens = 300; // Conservative limit
+        
+        foreach (var keyword in allKeywords
+            .Where(k => !string.IsNullOrWhiteSpace(k) && k.Length >= 2)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            int estimatedTokens = EstimateTokenCount(keyword);
+            
+            if (totalTokens + estimatedTokens <= maxTokens)
+            {
+                uniqueKeywords.Add(keyword);
+                totalTokens += estimatedTokens;
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        // Use keyterm for Nova-3, keywords for older models
+        var paramName = _deepgramModel.StartsWith("nova-3") ? "keyterm" : "keywords";
+        foreach (var keyword in uniqueKeywords)
+        {
+            queryParams.Add($"{paramName}={Uri.EscapeDataString(keyword)}");
+        }
+        
+        if (uniqueKeywords.Count > 0)
+        {
+            _logger.LogInformation("Deepgram streaming with {Count} {ParamName}s (~{Tokens} tokens)", 
+                uniqueKeywords.Count, paramName, totalTokens);
         }
         
         var url = $"wss://api.deepgram.com/v1/listen?{string.Join("&", queryParams)}";
@@ -133,6 +190,62 @@ public class DeepgramStreamingService : ITranscriptionService
         _connectTask = ConnectAndFlushBufferAsync(url, cancellationToken);
         
         _logger.LogInformation("Deepgram streaming initiated (connecting in background): {Model}", _deepgramModel);
+    }
+    
+    /// <summary>
+    /// Checks if a keyword contains any non-English word parts.
+    /// Keywords with only English words don't need boosting since Deepgram already knows them.
+    /// </summary>
+    private static bool ContainsNonEnglishPart(string keyword)
+    {
+        var parts = SplitIntoParts(keyword);
+        
+        foreach (var part in parts)
+        {
+            if (part.Length < 2) continue;
+            
+            if (!EnglishDictionary.IsEnglishWord(part))
+            {
+                return true; // Found a non-English part
+            }
+        }
+        
+        return false;
+    }
+    
+    /// <summary>
+    /// Splits a keyword into word parts (by underscore, hyphen, dot, CamelCase).
+    /// </summary>
+    private static List<string> SplitIntoParts(string keyword)
+    {
+        var parts = new List<string>();
+        
+        var segments = keyword.Split(new[] { '_', '-', '.', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        
+        foreach (var segment in segments)
+        {
+            var camelParts = Regex.Split(segment, @"(?<!^)(?=[A-Z])");
+            foreach (var part in camelParts)
+            {
+                if (!string.IsNullOrEmpty(part))
+                {
+                    parts.Add(part.ToLowerInvariant());
+                }
+            }
+        }
+        
+        return parts;
+    }
+    
+    /// <summary>
+    /// Estimates the number of tokens in a keyword for Deepgram's limit.
+    /// </summary>
+    private static int EstimateTokenCount(string keyword)
+    {
+        if (string.IsNullOrEmpty(keyword))
+            return 0;
+        
+        return Math.Max(1, SplitIntoParts(keyword).Count);
     }
     
     /// <summary>

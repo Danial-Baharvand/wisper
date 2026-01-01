@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
+using WisperFlow.Services.CodeContext;
 using WisperFlow.Services.CodeDictation;
 using WisperFlow.Services.Polish;
 using WisperFlow.Services.Transcription;
@@ -18,6 +19,7 @@ public class DictationOrchestrator
     private readonly OverlayWindow _overlayWindow;
     private readonly SettingsManager _settingsManager;
     private readonly ServiceFactory _serviceFactory;
+    private readonly CodeContextService _codeContextService;
     private readonly ILogger<DictationOrchestrator> _logger;
 
     private ITranscriptionService? _transcriptionService;
@@ -41,6 +43,7 @@ public class DictationOrchestrator
         OverlayWindow overlayWindow,
         SettingsManager settingsManager,
         ServiceFactory serviceFactory,
+        CodeContextService codeContextService,
         ILogger<DictationOrchestrator> logger)
     {
         _hotkeyManager = hotkeyManager;
@@ -49,6 +52,7 @@ public class DictationOrchestrator
         _overlayWindow = overlayWindow;
         _settingsManager = settingsManager;
         _serviceFactory = serviceFactory;
+        _codeContextService = codeContextService;
         _logger = logger;
 
         _hotkeyManager.RecordStart += OnRecordStart;
@@ -191,16 +195,45 @@ public class DictationOrchestrator
                     
                     try
                     {
+                        // Get code context keywords if a supported editor is active
+                        // Use Task.Run to avoid potential deadlocks with COM interop on UI thread
+                        List<string>? codeKeywords = null;
+                        if (_codeContextService.IsSupportedEditorActive())
+                        {
+                            try
+                            {
+                                // Run on thread pool to avoid COM/UI thread issues
+                                // Use a short timeout to not delay recording start too much
+                                var keywordTask = Task.Run(() => _codeContextService.GetKeywordsForDeepgramAsync());
+                                if (keywordTask.Wait(500))  // 500ms timeout
+                                {
+                                    codeKeywords = keywordTask.Result;
+                                    _logger.LogInformation("Got {Count} code context keywords for Deepgram streaming", 
+                                        codeKeywords.Count);
+                                }
+                                else
+                                {
+                                    _logger.LogDebug("Keyword extraction timed out, proceeding without keywords");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex, "Failed to get code context keywords");
+                            }
+                        }
+                        
                         // This returns immediately - connection happens in background
                         // Audio is buffered until connection completes
                         _streamingService.StartStreamingAsync(
                             settings.Language == "auto" ? "en" : settings.Language,
+                            codeKeywords,
                             _currentOperationCts.Token);
                         
                         // Subscribe to audio chunks immediately
                         _audioRecorder.AudioDataAvailable += OnAudioDataForStreaming;
                         _isStreamingActive = true;
-                        _logger.LogInformation("Deepgram streaming initiated (connecting in background)");
+                        _logger.LogInformation("Deepgram streaming initiated with {Keywords} code keywords", 
+                            codeKeywords?.Count ?? 0);
                     }
                     catch (Exception ex)
                     {
@@ -321,7 +354,12 @@ public class DictationOrchestrator
             }
 
             _overlayWindow.Hide();
-            await _textInjector.InjectTextAsync(finalText, cts?.Token ?? CancellationToken.None);
+            
+            // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
+            var fileNames = _codeContextService.IsSupportedEditorActive() 
+                ? _codeContextService.GetFileNamesForMentions() 
+                : null;
+            await _textInjector.InjectTextWithMentionsAsync(finalText, fileNames, cts?.Token ?? CancellationToken.None);
             _logger.LogInformation("Injected {Len} chars (via streaming)", finalText.Length);
         }
         catch (OperationCanceledException)
@@ -367,10 +405,27 @@ public class DictationOrchestrator
             _overlayWindow.ShowTranscribing();
             _logger.LogInformation("Processing with {Model}...", _transcriptionService.ModelId);
 
-            var transcript = await _transcriptionService.TranscribeAsync(
-                audioFilePath,
-                settings.Language == "auto" ? null : settings.Language,
-                cts?.Token ?? CancellationToken.None);
+            // Get code context keywords for Deepgram transcription
+            string transcript;
+            if (_transcriptionService is DeepgramTranscriptionService deepgramService && 
+                _codeContextService.IsSupportedEditorActive())
+            {
+                var keywords = await _codeContextService.GetKeywordsForDeepgramAsync();
+                _logger.LogInformation("Using {Count} code context keywords for Deepgram batch transcription", keywords.Count);
+                
+                transcript = await deepgramService.TranscribeWithKeywordsAsync(
+                    audioFilePath,
+                    settings.Language == "auto" ? null : settings.Language,
+                    keywords,
+                    cts?.Token ?? CancellationToken.None);
+            }
+            else
+            {
+                transcript = await _transcriptionService.TranscribeAsync(
+                    audioFilePath,
+                    settings.Language == "auto" ? null : settings.Language,
+                    cts?.Token ?? CancellationToken.None);
+            }
 
             if (string.IsNullOrWhiteSpace(transcript))
             {
@@ -395,7 +450,12 @@ public class DictationOrchestrator
             }
 
             _overlayWindow.Hide();
-            await _textInjector.InjectTextAsync(finalText, cts?.Token ?? CancellationToken.None);
+            
+            // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
+            var fileNames = _codeContextService.IsSupportedEditorActive() 
+                ? _codeContextService.GetFileNamesForMentions() 
+                : null;
+            await _textInjector.InjectTextWithMentionsAsync(finalText, fileNames, cts?.Token ?? CancellationToken.None);
             _logger.LogInformation("Injected {Len} chars", finalText.Length);
         }
         catch (OperationCanceledException)
