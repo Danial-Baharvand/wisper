@@ -16,8 +16,7 @@ public class DictationOrchestrator
     private readonly HotkeyManager _hotkeyManager;
     private readonly AudioRecorder _audioRecorder;
     private readonly TextInjector _textInjector;
-    private readonly OverlayWindow _overlayWindow;
-    private readonly FloatingTranscriptWindow _floatingTranscriptWindow;  // Real-time transcript preview
+    private readonly DictationBar _dictationBar;  // Unified bottom bar UI
     private readonly SettingsManager _settingsManager;
     private readonly ServiceFactory _serviceFactory;
     private readonly CodeContextService _codeContextService;
@@ -41,8 +40,7 @@ public class DictationOrchestrator
         HotkeyManager hotkeyManager,
         AudioRecorder audioRecorder,
         TextInjector textInjector,
-        OverlayWindow overlayWindow,
-        FloatingTranscriptWindow floatingTranscriptWindow,
+        DictationBar dictationBar,
         SettingsManager settingsManager,
         ServiceFactory serviceFactory,
         CodeContextService codeContextService,
@@ -51,8 +49,7 @@ public class DictationOrchestrator
         _hotkeyManager = hotkeyManager;
         _audioRecorder = audioRecorder;
         _textInjector = textInjector;
-        _overlayWindow = overlayWindow;
-        _floatingTranscriptWindow = floatingTranscriptWindow;
+        _dictationBar = dictationBar;
         _settingsManager = settingsManager;
         _serviceFactory = serviceFactory;
         _codeContextService = codeContextService;
@@ -66,6 +63,7 @@ public class DictationOrchestrator
         _hotkeyManager.CodeDictationRecordStop += OnCodeDictationRecordStop;
         _audioRecorder.MaxDurationReached += OnMaxDurationReached;
         _audioRecorder.RecordingProgress += OnRecordingProgress;
+        _audioRecorder.AudioLevelChanged += OnAudioLevelChanged;
     }
 
     public void ApplySettings(AppSettings settings)
@@ -116,8 +114,34 @@ public class DictationOrchestrator
         // Register code dictation hotkey
         _hotkeyManager.RegisterCodeDictationHotkey(settings.CodeDictationHotkeyModifiers, settings.CodeDictationEnabled);
 
+        // Update hotkey display in the dictation bar
+        var hotkeyDisplay = FormatHotkeyDisplay(settings.HotkeyModifiers, settings.HotkeyKey);
+        _dictationBar.SetHotkey(hotkeyDisplay);
+        
         _logger.LogInformation("Settings applied: Enabled={Enabled}, Polish={Polish}, CommandMode={CommandMode}, CodeDictation={CodeDictation}", 
             settings.HotkeyEnabled, settings.PolishOutput, settings.CommandModeEnabled, settings.CodeDictationEnabled);
+    }
+    
+    private static string FormatHotkeyDisplay(HotkeyModifiers modifiers, int key)
+    {
+        var parts = new List<string>();
+        
+        if (modifiers.HasFlag(HotkeyModifiers.Control)) parts.Add("ctrl");
+        if (modifiers.HasFlag(HotkeyModifiers.Alt)) parts.Add("alt");
+        if (modifiers.HasFlag(HotkeyModifiers.Shift)) parts.Add("shift");
+        if (modifiers.HasFlag(HotkeyModifiers.Win)) parts.Add("win");
+        
+        // Add the key if specified
+        if (key > 0)
+        {
+            // Convert virtual key code to string
+            var keyName = ((System.Windows.Forms.Keys)key).ToString().ToLower();
+            if (keyName.StartsWith("capital"))
+                keyName = "caps";
+            parts.Add(keyName);
+        }
+        
+        return string.Join("+", parts);
     }
 
     public async Task InitializeServicesAsync()
@@ -157,7 +181,7 @@ public class DictationOrchestrator
         {
             _currentOperationCts?.Cancel();
             _audioRecorder.StopRecording();
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
         }
         _logger.LogInformation("Dictation {State}", enabled ? "enabled" : "disabled");
     }
@@ -173,7 +197,7 @@ public class DictationOrchestrator
         if (!_isEnabled || _isProcessing) return;
         if (_servicesInitializing)
         {
-            _overlayWindow.ShowError("Models loading...");
+            _dictationBar.ShowError("Models loading...");
             return;
         }
 
@@ -229,8 +253,8 @@ public class DictationOrchestrator
                         _streamingService.OnTranscriptUpdate += OnTranscriptUpdateReceived;
                         _streamingService.OnUtteranceEnd += OnUtteranceEndReceived;
                         
-                        // Reset floating transcript window for new session
-                        _floatingTranscriptWindow.Reset();
+                        // Reset transcript for new session
+                        _dictationBar.ResetTranscript();
                         
                         // This returns immediately - connection happens in background
                         // Audio is buffered until connection completes
@@ -257,13 +281,13 @@ public class DictationOrchestrator
             
             // Start recording IMMEDIATELY - no delay!
             _audioRecorder.StartRecording();
-            _overlayWindow.ShowRecording();
+            _dictationBar.ShowRecording();
             _logger.LogInformation("Recording started (streaming: {Streaming})", _isStreamingActive);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start recording");
-            _overlayWindow.ShowError("Failed to start recording");
+            _dictationBar.ShowError("Failed to start recording");
             _isStreamingActive = false;
         }
     }
@@ -285,34 +309,27 @@ public class DictationOrchestrator
     
     /// <summary>
     /// Called when a transcript update is received from Deepgram (interim or final).
-    /// Shows it in the floating transcript window in real-time.
+    /// Shows it in the dictation bar in real-time.
     /// </summary>
     private void OnTranscriptUpdateReceived(string text, bool isFinal)
     {
         try
         {
-            _floatingTranscriptWindow.UpdateTranscript(text, isFinal);
+            _dictationBar.UpdateTranscript(text, isFinal);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to update floating transcript window");
+            _logger.LogWarning(ex, "Failed to update dictation bar transcript");
         }
     }
     
     /// <summary>
     /// Called when Deepgram signals end of utterance (speech stopped).
-    /// Updates the floating window to show "Ready" status.
     /// </summary>
     private void OnUtteranceEndReceived()
     {
-        try
-        {
-            _floatingTranscriptWindow.ShowUtteranceComplete();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to update utterance end status");
-        }
+        // Currently just logged, UI state is managed by the transcript updates
+        _logger.LogDebug("Utterance end received");
     }
 
     private async void OnRecordStop(object? sender, EventArgs e)
@@ -324,10 +341,10 @@ public class DictationOrchestrator
         // Set flag immediately to prevent any race conditions
         _isProcessing = true;
 
-        // Start Matrix effect on the floating transcript window (if streaming was active)
+        // Transition to processing state (if streaming was active)
         if (_isStreamingActive)
         {
-            _floatingTranscriptWindow.StartMatrixEffect();
+            _dictationBar.ShowProcessing();
         }
 
         // Unsubscribe from audio events
@@ -336,7 +353,7 @@ public class DictationOrchestrator
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             CleanupStreaming();
             _isProcessing = false;  // Reset flag
             return;
@@ -367,9 +384,6 @@ public class DictationOrchestrator
         _streamingService?.Dispose();
         _streamingService = null;
         _isStreamingActive = false;
-        
-        // Hide floating window (it may have already faded out via Matrix effect)
-        _floatingTranscriptWindow.HideImmediate();
     }
     
     private async Task ProcessStreamingRecordingAsync(string audioFilePath)
@@ -380,7 +394,7 @@ public class DictationOrchestrator
 
         try
         {
-            _overlayWindow.ShowTranscribing("Finalizing...");
+            _dictationBar.ShowTranscribing("Finalizing...");
             
             // Get transcript from streaming service
             var transcript = await _streamingService!.StopStreamingAsync(cts?.Token ?? CancellationToken.None);
@@ -403,16 +417,16 @@ public class DictationOrchestrator
                 
                 if (!_polishService.IsReady)
                 {
-                    _overlayWindow.ShowPolishing("Loading model...");
+                    _dictationBar.ShowPolishing("Loading model...");
                     await _polishService.InitializeAsync(cts?.Token ?? CancellationToken.None);
                 }
 
-                _overlayWindow.ShowPolishing();
+                _dictationBar.ShowPolishing();
                 finalText = await _polishService.PolishAsync(transcript, settings.NotesMode, cts?.Token ?? CancellationToken.None);
                 _logger.LogDebug("Polished: {Len} chars", finalText.Length);
             }
 
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             
             // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
             var fileNames = _codeContextService.IsSupportedEditorActive() 
@@ -423,12 +437,12 @@ public class DictationOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Streaming transcription error: {Msg}", ex.Message);
-            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+            _dictationBar.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
         }
         finally
         {
@@ -440,8 +454,9 @@ public class DictationOrchestrator
         }
     }
 
-    private void OnMaxDurationReached(object? sender, EventArgs e) => _overlayWindow.ShowError("Max duration reached");
-    private void OnRecordingProgress(object? sender, TimeSpan duration) => _overlayWindow.UpdateRecordingTime(duration);
+    private void OnMaxDurationReached(object? sender, EventArgs e) => _dictationBar.ShowError("Max duration reached");
+    private void OnRecordingProgress(object? sender, TimeSpan duration) => _dictationBar.UpdateRecordingTime(duration);
+    private void OnAudioLevelChanged(object? sender, float level) => _dictationBar.UpdateAudioLevel(level);
 
     private async Task ProcessRecordingAsync(string audioFilePath)
     {
@@ -457,11 +472,11 @@ public class DictationOrchestrator
             // Initialize if needed
             if (!_transcriptionService.IsReady)
             {
-                _overlayWindow.ShowTranscribing("Loading model...");
+                _dictationBar.ShowTranscribing("Loading model...");
                 await _transcriptionService.InitializeAsync(cts?.Token ?? CancellationToken.None);
             }
 
-            _overlayWindow.ShowTranscribing();
+            _dictationBar.ShowTranscribing();
             _logger.LogInformation("Processing with {Model}...", _transcriptionService.ModelId);
 
             // Get code context keywords for Deepgram transcription
@@ -488,7 +503,7 @@ public class DictationOrchestrator
 
             if (string.IsNullOrWhiteSpace(transcript))
             {
-                _overlayWindow.ShowError("No speech detected");
+                _dictationBar.ShowError("No speech detected");
                 return;
             }
 
@@ -499,16 +514,16 @@ public class DictationOrchestrator
             {
                 if (!_polishService.IsReady)
                 {
-                    _overlayWindow.ShowPolishing("Loading model...");
+                    _dictationBar.ShowPolishing("Loading model...");
                     await _polishService.InitializeAsync(cts?.Token ?? CancellationToken.None);
                 }
 
-                _overlayWindow.ShowPolishing();
+                _dictationBar.ShowPolishing();
                 finalText = await _polishService.PolishAsync(transcript, settings.NotesMode, cts?.Token ?? CancellationToken.None);
                 _logger.LogDebug("Polished: {Len} chars", finalText.Length);
             }
 
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             
             // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
             var fileNames = _codeContextService.IsSupportedEditorActive() 
@@ -519,17 +534,17 @@ public class DictationOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
         }
         catch (InvalidOperationException ex)
         {
             _logger.LogWarning(ex, "Dictation failed: {Msg}", ex.Message);
-            _overlayWindow.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
+            _dictationBar.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Dictation error: {Msg}", ex.Message);
-            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+            _dictationBar.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
         }
         finally
         {
@@ -547,7 +562,7 @@ public class DictationOrchestrator
         if (!_isEnabled || _isProcessing) return;
         if (_servicesInitializing)
         {
-            _overlayWindow.ShowError("Models loading...");
+            _dictationBar.ShowError("Models loading...");
             return;
         }
 
@@ -557,14 +572,14 @@ public class DictationOrchestrator
             _commandModeSelectedText = null;  // Will be captured on stop
             
             // Start recording and show overlay IMMEDIATELY
-            _overlayWindow.ShowRecording("Command Mode");
+            _dictationBar.ShowRecording("Command Mode");
             _audioRecorder.StartRecording();
             _logger.LogInformation("Command recording started");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start command recording");
-            _overlayWindow.ShowError("Failed to start recording");
+            _dictationBar.ShowError("Failed to start recording");
             _commandModeSelectedText = null;
         }
     }
@@ -580,7 +595,7 @@ public class DictationOrchestrator
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             _isProcessing = false;
             return;
         }
@@ -644,11 +659,11 @@ public class DictationOrchestrator
             // Initialize transcription if needed
             if (!_transcriptionService.IsReady)
             {
-                _overlayWindow.ShowTranscribing("Loading model...");
+                _dictationBar.ShowTranscribing("Loading model...");
                 await _transcriptionService.InitializeAsync(cts?.Token ?? CancellationToken.None);
             }
 
-            _overlayWindow.ShowTranscribing("Processing command...");
+            _dictationBar.ShowTranscribing("Processing command...");
             _logger.LogInformation("Processing command with {Model}...", _transcriptionService.ModelId);
 
             // Transcribe the spoken command
@@ -659,7 +674,7 @@ public class DictationOrchestrator
 
             if (string.IsNullOrWhiteSpace(rawCommand))
             {
-                _overlayWindow.ShowError("No command detected");
+                _dictationBar.ShowError("No command detected");
                 return;
             }
 
@@ -698,7 +713,7 @@ public class DictationOrchestrator
                     _logger.LogInformation("Mode: Search (no context)");
                 }
                 
-                _overlayWindow.Hide();
+                _dictationBar.Hide();
                 await BrowserQueryService.OpenQueryAsync(searchQuery, settings.CommandModeSearchEngine);
                 _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine, 
                     searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
@@ -706,12 +721,12 @@ public class DictationOrchestrator
         }
         catch (OperationCanceledException)
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Command processing error: {Msg}", ex.Message);
-            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+            _dictationBar.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
         }
         finally
         {
@@ -726,7 +741,7 @@ public class DictationOrchestrator
 
     private async Task ProcessTextTransformAsync(string selectedText, string command, CancellationToken cancellationToken)
     {
-        _overlayWindow.ShowPolishing("Transforming...");
+        _dictationBar.ShowPolishing("Transforming...");
         _logger.LogInformation("Transforming {Len} chars with command: '{Command}'", selectedText.Length, command);
         _logger.LogDebug("Original text: '{Text}'", selectedText.Length > 100 ? selectedText[..100] + "..." : selectedText);
 
@@ -748,7 +763,7 @@ public class DictationOrchestrator
         catch (InvalidOperationException ex)
         {
             _logger.LogError(ex, "Transform failed - polish service not ready");
-            _overlayWindow.ShowError("Polish model failed. Use OpenAI in settings.");
+            _dictationBar.ShowError("Polish model failed. Use OpenAI in settings.");
             return;
         }
         
@@ -759,28 +774,28 @@ public class DictationOrchestrator
         if (string.IsNullOrWhiteSpace(transformedText))
         {
             _logger.LogWarning("Transform returned empty text");
-            _overlayWindow.ShowError("Transform failed");
+            _dictationBar.ShowError("Transform failed");
             return;
         }
         
         if (transformedText.Trim() == selectedText.Trim())
         {
             _logger.LogWarning("Transform returned same text as input");
-            _overlayWindow.ShowError("No changes made");
+            _dictationBar.ShowError("No changes made");
             return;
         }
 
         _logger.LogInformation("Transformed text: {Len} chars", transformedText.Length);
 
         // Replace the selected text with the transformed text
-        _overlayWindow.Hide();
+        _dictationBar.Hide();
         await ClipboardHelper.ReplaceSelectedTextAsync(transformedText);
         _logger.LogInformation("Replaced selected text");
     }
 
     private async Task ProcessTextGenerateAsync(string instruction, CancellationToken cancellationToken)
     {
-        _overlayWindow.ShowPolishing("Generating...");
+        _dictationBar.ShowPolishing("Generating...");
         _logger.LogInformation("Generating text with instruction: '{Instruction}'", instruction);
 
         var settings = _settingsManager.CurrentSettings;
@@ -800,7 +815,7 @@ public class DictationOrchestrator
         catch (InvalidOperationException ex)
         {
             _logger.LogError(ex, "Generate failed - polish service not ready");
-            _overlayWindow.ShowError("Polish model failed. Use OpenAI in settings.");
+            _dictationBar.ShowError("Polish model failed. Use OpenAI in settings.");
             return;
         }
 
@@ -811,14 +826,14 @@ public class DictationOrchestrator
         if (string.IsNullOrWhiteSpace(generatedText))
         {
             _logger.LogWarning("Generate returned empty text");
-            _overlayWindow.ShowError("Generation failed");
+            _dictationBar.ShowError("Generation failed");
             return;
         }
 
         _logger.LogInformation("Generated text: {Len} chars", generatedText.Length);
 
         // Insert the generated text at cursor position
-        _overlayWindow.Hide();
+        _dictationBar.Hide();
         await ClipboardHelper.ReplaceSelectedTextAsync(generatedText);
         _logger.LogInformation("Inserted generated text");
     }
@@ -830,7 +845,7 @@ public class DictationOrchestrator
         if (!_isEnabled || _isProcessing) return;
         if (_servicesInitializing)
         {
-            _overlayWindow.ShowError("Models loading...");
+            _dictationBar.ShowError("Models loading...");
             return;
         }
 
@@ -839,14 +854,14 @@ public class DictationOrchestrator
             _currentOperationCts = new CancellationTokenSource();
             
             // Start recording and show overlay
-            _overlayWindow.ShowRecording("Code Dictation");
+            _dictationBar.ShowRecording("Code Dictation");
             _audioRecorder.StartRecording();
             _logger.LogInformation("Code dictation recording started");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to start code dictation recording");
-            _overlayWindow.ShowError("Failed to start recording");
+            _dictationBar.ShowError("Failed to start recording");
         }
     }
 
@@ -861,7 +876,7 @@ public class DictationOrchestrator
         var audioFilePath = _audioRecorder.StopRecording();
         if (string.IsNullOrEmpty(audioFilePath))
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             _isProcessing = false;
             return;
         }
@@ -883,11 +898,11 @@ public class DictationOrchestrator
             // Initialize transcription if needed
             if (!_transcriptionService.IsReady)
             {
-                _overlayWindow.ShowTranscribing("Loading model...");
+                _dictationBar.ShowTranscribing("Loading model...");
                 await _transcriptionService.InitializeAsync(cts?.Token ?? CancellationToken.None);
             }
 
-            _overlayWindow.ShowTranscribing("Converting speech...");
+            _dictationBar.ShowTranscribing("Converting speech...");
             _logger.LogInformation("Processing code dictation with {Model}...", _transcriptionService.ModelId);
 
             // Transcribe the spoken code
@@ -898,7 +913,7 @@ public class DictationOrchestrator
 
             if (string.IsNullOrWhiteSpace(rawTranscript))
             {
-                _overlayWindow.ShowError("No speech detected");
+                _dictationBar.ShowError("No speech detected");
                 return;
             }
 
@@ -907,12 +922,12 @@ public class DictationOrchestrator
             // Initialize code dictation service if needed
             if (!_codeDictationService.IsReady)
             {
-                _overlayWindow.ShowPolishing("Loading code model...");
+                _dictationBar.ShowPolishing("Loading code model...");
                 await _codeDictationService.InitializeAsync(cts?.Token ?? CancellationToken.None);
             }
 
             // Convert to code
-            _overlayWindow.ShowPolishing("Generating code...");
+            _dictationBar.ShowPolishing("Generating code...");
             var code = await _codeDictationService.ConvertToCodeAsync(
                 rawTranscript.Trim(),
                 settings.CodeDictationLanguage,
@@ -921,7 +936,7 @@ public class DictationOrchestrator
             if (string.IsNullOrWhiteSpace(code))
             {
                 _logger.LogWarning("Code conversion returned empty");
-                _overlayWindow.ShowError("Code conversion failed");
+                _dictationBar.ShowError("Code conversion failed");
                 return;
             }
 
@@ -929,23 +944,23 @@ public class DictationOrchestrator
                 code.Length > 100 ? code[..100] + "..." : code);
 
             // Inject the generated code
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
             await _textInjector.InjectTextAsync(code, cts?.Token ?? CancellationToken.None);
             _logger.LogInformation("Injected code: {Len} chars", code.Length);
         }
         catch (OperationCanceledException)
         {
-            _overlayWindow.Hide();
+            _dictationBar.Hide();
         }
         catch (InvalidOperationException ex)
         {
             _logger.LogWarning(ex, "Code dictation failed: {Msg}", ex.Message);
-            _overlayWindow.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
+            _dictationBar.ShowError(ex.Message.Length > 60 ? ex.Message[..57] + "..." : ex.Message);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Code dictation error: {Msg}", ex.Message);
-            _overlayWindow.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
+            _dictationBar.ShowError("Error: " + (ex.Message.Length > 50 ? ex.Message[..47] + "..." : ex.Message));
         }
         finally
         {

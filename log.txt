@@ -1966,3 +1966,126 @@
   "utterances": false
 }
 2026-01-02 00:31:27.742 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 00:45:03.827 [Information] DeepgramHttpClientOptions: OnPrem: False
+2026-01-02 00:45:03.832 [Information] DeepgramHttpClientOptions: APIVersion: v1
+2026-01-02 00:45:03.835 [Information] DeepgramHttpClientOptions: REST BaseAddress does not contain API version: api.deepgram.com
+2026-01-02 00:45:03.835 [Information] DeepgramHttpClientOptions: BaseAddress contains no protocol: api.deepgram.com/v1
+2026-01-02 00:45:03.835 [Information] DeepgramHttpClientOptions: BaseAddress: https://api.deepgram.com/v1
+2026-01-02 00:45:03.838 [Information] HttpClientFactory.Create: HttpClient ID: DEEPGRAM_HTTP_CLIENT
+2026-01-02 00:45:03.856 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 00:45:03.872 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 00:45:05.782 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:08:02.734 [Information] DeepgramHttpClientOptions: OnPrem: False
+2026-01-02 01:08:02.742 [Information] DeepgramHttpClientOptions: APIVersion: v1
+2026-01-02 01:08:02.742 [Information] DeepgramHttpClientOptions: REST BaseAddress does not contain API version: api.deepgram.com
+2026-01-02 01:08:02.742 [Information] DeepgramHttpClientOptions: BaseAddress contains no protocol: api.deepgram.com/v1
+2026-01-02 01:08:02.742 [Information] DeepgramHttpClientOptions: BaseAddress: https://api.deepgram.com/v1
+2026-01-02 01:08:02.744 [Information] HttpClientFactory.Create: HttpClient ID: DEEPGRAM_HTTP_CLIENT
+2026-01-02 01:08:02.758 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:08:02.773 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:08:03.844 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:08:19.373 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:08:19.376 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:08:21.739 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:08:47.830 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:08:47.836 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:08:49.132 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:26:56.561 [Information] DeepgramHttpClientOptions: OnPrem: False
+2026-01-02 01:26:56.566 [Information] DeepgramHttpClientOptions: APIVersion: v1
+2026-01-02 01:26:56.566 [Information] DeepgramHttpClientOptions: REST BaseAddress does not contain API version: api.deepgram.com
+2026-01-02 01:26:56.566 [Information] DeepgramHttpClientOptions: BaseAddress contains no protocol: api.deepgram.com/v1
+2026-01-02 01:26:56.566 [Information] DeepgramHttpClientOptions: BaseAddress: https://api.deepgram.com/v1
+2026-01-02 01:26:56.568 [Information] HttpClientFactory.Create: HttpClient ID: DEEPGRAM_HTTP_CLIENT
+2026-01-02 01:26:56.582 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:26:56.593 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:26:58.644 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:27:03.628 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:27:03.628 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:27:04.545 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 01:27:22.102 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 01:27:22.109 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 01:27:23.728 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded

@@ -27,6 +27,11 @@ public class AudioRecorder : IDisposable
     /// Event fired when audio data is available during recording (for streaming transcription).
     /// </summary>
     public event EventHandler<byte[]>? AudioDataAvailable;
+    
+    /// <summary>
+    /// Event fired with normalized audio level (0.0 to 1.0) for visualization.
+    /// </summary>
+    public event EventHandler<float>? AudioLevelChanged;
 
     public bool IsRecording => _isRecording;
     public TimeSpan RecordingDuration => _isRecording ? DateTime.Now - _recordingStartTime : TimeSpan.Zero;
@@ -172,6 +177,13 @@ public class AudioRecorder : IDisposable
                 AudioDataAvailable.Invoke(this, audioChunk);
             }
             
+            // Calculate and fire audio level for visualization
+            if (AudioLevelChanged != null)
+            {
+                float level = CalculateAudioLevel(e.Buffer, e.BytesRecorded);
+                AudioLevelChanged.Invoke(this, level);
+            }
+            
             var duration = DateTime.Now - _recordingStartTime;
             if (duration.TotalMilliseconds % 500 < 50)
                 RecordingProgress?.Invoke(this, duration);
@@ -186,6 +198,36 @@ public class AudioRecorder : IDisposable
     {
         if (e.Exception != null)
             _logger.LogError(e.Exception, "Recording stopped due to error");
+    }
+    
+    /// <summary>
+    /// Calculate normalized audio level (0.0 to 1.0) from 16-bit PCM samples.
+    /// Uses RMS (root mean square) for more accurate level representation.
+    /// </summary>
+    private static float CalculateAudioLevel(byte[] buffer, int bytesRecorded)
+    {
+        // 16-bit samples = 2 bytes per sample
+        int sampleCount = bytesRecorded / 2;
+        if (sampleCount == 0) return 0f;
+        
+        double sumOfSquares = 0;
+        for (int i = 0; i < bytesRecorded - 1; i += 2)
+        {
+            // Convert to 16-bit signed sample
+            short sample = (short)(buffer[i] | (buffer[i + 1] << 8));
+            
+            // Normalize to -1.0 to 1.0
+            double normalizedSample = sample / 32768.0;
+            sumOfSquares += normalizedSample * normalizedSample;
+        }
+        
+        // RMS level
+        double rms = Math.Sqrt(sumOfSquares / sampleCount);
+        
+        // Convert to 0-1 range with some scaling for better visual feedback
+        // Typical speech is around 0.1-0.3 RMS
+        float level = (float)(rms * 3.0);
+        return Math.Clamp(level, 0f, 1f);
     }
 
     private void OnMaxDurationElapsed(object? sender, System.Timers.ElapsedEventArgs e)

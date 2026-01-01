@@ -1,0 +1,182 @@
+<Window x:Class="WisperFlow.DictationBar"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WisperFlow"
+        Width="800" Height="160"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Focusable="False"
+        ShowActivated="False"
+        WindowStartupLocation="Manual">
+    
+    <Window.Resources>
+        <!-- Hint bar expand animation -->
+        <Storyboard x:Key="HintExpandAnimation">
+            <DoubleAnimation Storyboard.TargetName="HintBar" Storyboard.TargetProperty="Opacity"
+                           From="0" To="1" Duration="0:0:0.2"/>
+            <DoubleAnimation Storyboard.TargetName="HintBarTransform" Storyboard.TargetProperty="Y"
+                           From="10" To="0" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Hint bar collapse animation -->
+        <Storyboard x:Key="HintCollapseAnimation">
+            <DoubleAnimation Storyboard.TargetName="HintBar" Storyboard.TargetProperty="Opacity"
+                           From="1" To="0" Duration="0:0:0.15"/>
+            <DoubleAnimation Storyboard.TargetName="HintBarTransform" Storyboard.TargetProperty="Y"
+                           From="0" To="10" Duration="0:0:0.15"/>
+        </Storyboard>
+        
+        <!-- Transcript bar expand animation (same as hint bar) -->
+        <Storyboard x:Key="TranscriptExpandAnimation">
+            <DoubleAnimation Storyboard.TargetName="TranscriptBar" Storyboard.TargetProperty="Opacity"
+                           From="0" To="1" Duration="0:0:0.2"/>
+            <DoubleAnimation Storyboard.TargetName="TranscriptBarTransform" Storyboard.TargetProperty="Y"
+                           From="10" To="0" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Transcript bar collapse animation (same as hint bar) -->
+        <Storyboard x:Key="TranscriptCollapseAnimation">
+            <DoubleAnimation Storyboard.TargetName="TranscriptBar" Storyboard.TargetProperty="Opacity"
+                           From="1" To="0" Duration="0:0:0.15"/>
+            <DoubleAnimation Storyboard.TargetName="TranscriptBarTransform" Storyboard.TargetProperty="Y"
+                           From="0" To="10" Duration="0:0:0.15"/>
+        </Storyboard>
+        
+        <!-- Main bar expand animation (for hover/recording - slightly wider than sound waves) -->
+        <Storyboard x:Key="MainBarExpandAnimation">
+            <DoubleAnimation Storyboard.TargetName="MainBar" Storyboard.TargetProperty="Width"
+                           To="100" Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="MainBar" Storyboard.TargetProperty="Height"
+                           To="28" Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Main bar contract animation (back to pill) -->
+        <Storyboard x:Key="MainBarContractAnimation">
+            <DoubleAnimation Storyboard.TargetName="MainBar" Storyboard.TargetProperty="Width"
+                           To="70" Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseIn"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetName="MainBar" Storyboard.TargetProperty="Height"
+                           To="22" Duration="0:0:0.2">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseIn"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+    </Window.Resources>
+    
+    <Grid x:Name="RootGrid" VerticalAlignment="Bottom" HorizontalAlignment="Center">
+        <StackPanel VerticalAlignment="Bottom">
+            
+            <!-- Transcript Bar (same styling as Hint Bar) -->
+            <Border x:Name="TranscriptBar" 
+                    Background="#F0121820" 
+                    CornerRadius="8" 
+                    Padding="16,8"
+                    Margin="0,0,0,4"
+                    Opacity="0"
+                    HorizontalAlignment="Center">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="TranscriptBarTransform" Y="10"/>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="12" Opacity="0.3" ShadowDepth="1"/>
+                </Border.Effect>
+                
+                <!-- TextBlock with inline cursor - same font as hint bar -->
+                <TextBlock x:Name="TranscriptText" 
+                           Foreground="#8892b0" 
+                           FontFamily="Segoe UI" 
+                           FontSize="12"
+                           FontWeight="Normal"
+                           TextWrapping="Wrap"
+                           MaxWidth="600"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center">
+                    <Run x:Name="TranscriptRun" Text=""/>
+                    <InlineUIContainer x:Name="CursorContainer" BaselineAlignment="Center">
+                        <Border x:Name="TypingCursor" 
+                                Width="2" Height="14" 
+                                Background="#ff6b9d" 
+                                CornerRadius="1"
+                                Visibility="Collapsed"
+                                Margin="1,0,0,0"/>
+                    </InlineUIContainer>
+                </TextBlock>
+            </Border>
+            
+            <!-- Hint Bar (shows on hover) -->
+            <Border x:Name="HintBar" 
+                    Background="#F0121820" 
+                    CornerRadius="8" 
+                    Padding="16,8"
+                    Margin="0,0,0,4"
+                    Opacity="0"
+                    HorizontalAlignment="Center">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="HintBarTransform" Y="10"/>
+                </Border.RenderTransform>
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="12" Opacity="0.3" ShadowDepth="1"/>
+                </Border.Effect>
+                
+                <TextBlock x:Name="HintText" HorizontalAlignment="Center">
+                    <Run Text="Click or hold " Foreground="#8892b0" FontFamily="Segoe UI" FontSize="12"/>
+                    <Run x:Name="HotkeyText" Text="caps" Foreground="#ff6b9d" FontFamily="Segoe UI Semibold" FontSize="12"/>
+                    <Run Text=" to start dictating" Foreground="#8892b0" FontFamily="Segoe UI" FontSize="12"/>
+                </TextBlock>
+            </Border>
+            
+            <!-- Main Voice Bar (always visible) - pill shape when idle, expands on hover/recording -->
+            <Border x:Name="MainBar" 
+                    Background="#E6121820" 
+                    CornerRadius="11"
+                    Width="70" Height="22"
+                    HorizontalAlignment="Center"
+                    Cursor="Hand"
+                    Margin="0,0,0,8">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="8" Opacity="0.25" ShadowDepth="1"/>
+                </Border.Effect>
+                
+                <!-- Voice wave bars container - animated by code based on audio level -->
+                <StackPanel x:Name="VoiceBarsPanel" 
+                            Orientation="Horizontal" 
+                            HorizontalAlignment="Center" 
+                            VerticalAlignment="Center">
+                    <Rectangle x:Name="Bar1" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar2" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar3" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar4" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar5" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar6" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar7" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar8" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                    <Rectangle x:Name="Bar9" Width="3" Height="4" Fill="#6b7280" RadiusX="1.5" RadiusY="1.5" Margin="2,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</Window>
