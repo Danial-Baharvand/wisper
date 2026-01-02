@@ -57,10 +57,6 @@ public class AppSettings
     /// </summary>
     public bool HotkeyEnabled { get; set; } = true;
 
-    /// <summary>
-    /// Maximum recording duration in seconds.
-    /// </summary>
-    public int MaxRecordingDurationSeconds { get; set; } = 120;
 
     /// <summary>
     /// API key storage method.

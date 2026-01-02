@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.Extensions.Logging;
 using WisperFlow.Models;
 using WisperFlow.Services.CodeContext;
@@ -31,6 +32,7 @@ public class DictationOrchestrator
     private bool _isEnabled = true;
     private bool _isProcessing;
     private bool _servicesInitializing;
+    private bool _isMaxDurationScenario;  // Track if recording stopped due to max duration
     private string? _commandModeSelectedText;  // Selected text captured at command stop
     private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
@@ -62,6 +64,7 @@ public class DictationOrchestrator
         _hotkeyManager.CodeDictationRecordStart += OnCodeDictationRecordStart;
         _hotkeyManager.CodeDictationRecordStop += OnCodeDictationRecordStop;
         _audioRecorder.MaxDurationReached += OnMaxDurationReached;
+        _audioRecorder.WarningDurationReached += OnWarningDurationReached;
         _audioRecorder.RecordingProgress += OnRecordingProgress;
         _audioRecorder.AudioLevelChanged += OnAudioLevelChanged;
     }
@@ -69,7 +72,6 @@ public class DictationOrchestrator
     public void ApplySettings(AppSettings settings)
     {
         _isEnabled = settings.HotkeyEnabled;
-        _audioRecorder.SetMaxDuration(settings.MaxRecordingDurationSeconds);
 
         if (!string.IsNullOrEmpty(settings.MicrophoneDeviceId) && 
             int.TryParse(settings.MicrophoneDeviceId, out int deviceNumber))
@@ -426,6 +428,27 @@ public class DictationOrchestrator
                 _logger.LogDebug("Polished: {Len} chars", finalText.Length);
             }
 
+            // If max duration scenario, wait for user to release hotkeys before pasting
+            if (_isMaxDurationScenario)
+            {
+                var hotkeysReleased = await _textInjector.WaitForHotkeysReleasedAsync(
+                    timeoutSeconds: 10,
+                    onWaitingStarted: () => _dictationBar.ShowWarning("Release Ctrl+Win to paste...", autoHideSeconds: 10)
+                );
+                
+                if (!hotkeysReleased)
+                {
+                    // Timeout - set clipboard and show message but don't paste
+                    _logger.LogWarning("Hotkey release timeout - text left in clipboard");
+                    
+                    // Set clipboard so user can paste manually
+                    System.Windows.Clipboard.SetText(finalText);
+                    
+                    _dictationBar.ShowError("Insertion cancelled. Paste with Ctrl+V.");
+                    return;
+                }
+            }
+            
             _dictationBar.Hide();
             
             // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
@@ -447,6 +470,7 @@ public class DictationOrchestrator
         finally
         {
             _isProcessing = false;
+            _isMaxDurationScenario = false;  // Reset max duration flag
             CleanupStreaming();
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
@@ -454,7 +478,59 @@ public class DictationOrchestrator
         }
     }
 
-    private void OnMaxDurationReached(object? sender, EventArgs e) => _dictationBar.ShowError("Max duration reached");
+    private void OnWarningDurationReached(object? sender, EventArgs e)
+    {
+        int remainingSeconds = _audioRecorder.GetRemainingSeconds();
+        string message = remainingSeconds >= 60 
+            ? $"{remainingSeconds / 60} minute{(remainingSeconds >= 120 ? "s" : "")} remaining"
+            : $"{remainingSeconds}s remaining";
+        
+        _logger.LogWarning("Recording duration warning - {Message}", message);
+        // Use ShowWarning to display above transcript without replacing it
+        _dictationBar.ShowWarning(message, autoHideSeconds: 10);
+    }
+    
+    private async void OnMaxDurationReached(object? sender, EventArgs e)
+    {
+        _logger.LogWarning("Max duration reached - processing recording");
+        
+        // Don't process if already processing
+        if (_isProcessing) return;
+        _isProcessing = true;
+        _isMaxDurationScenario = true;  // Mark this as a max duration stop
+        
+        // Show processing state
+        _dictationBar.ShowProcessing("Processing...");
+        
+        // Unsubscribe from audio events
+        _audioRecorder.AudioDataAvailable -= OnAudioDataForStreaming;
+        
+        // StopRecording was already called by AudioRecorder before firing this event
+        // Get the file path from the recorder
+        var audioFilePath = _audioRecorder.CurrentFilePath;
+        
+        if (string.IsNullOrEmpty(audioFilePath) || !File.Exists(audioFilePath))
+        {
+            _logger.LogError("Could not find audio file after max duration");
+            _dictationBar.ShowError("Recording failed");
+            CleanupStreaming();
+            _isProcessing = false;
+            return;
+        }
+        
+        _logger.LogInformation("Processing max duration recording: {Path}", audioFilePath);
+        
+        // Process the recording
+        if (_isStreamingActive && _streamingService != null)
+        {
+            await ProcessStreamingRecordingAsync(audioFilePath);
+        }
+        else
+        {
+            await ProcessRecordingAsync(audioFilePath);
+        }
+    }
+    
     private void OnRecordingProgress(object? sender, TimeSpan duration) => _dictationBar.UpdateRecordingTime(duration);
     private void OnAudioLevelChanged(object? sender, float level) => _dictationBar.UpdateAudioLevel(level);
 
@@ -523,6 +599,27 @@ public class DictationOrchestrator
                 _logger.LogDebug("Polished: {Len} chars", finalText.Length);
             }
 
+            // If max duration scenario, wait for user to release hotkeys before pasting
+            if (_isMaxDurationScenario)
+            {
+                var hotkeysReleased = await _textInjector.WaitForHotkeysReleasedAsync(
+                    timeoutSeconds: 10,
+                    onWaitingStarted: () => _dictationBar.ShowWarning("Release Ctrl+Win to paste...", autoHideSeconds: 10)
+                );
+                
+                if (!hotkeysReleased)
+                {
+                    // Timeout - set clipboard and show message but don't paste
+                    _logger.LogWarning("Hotkey release timeout - text left in clipboard");
+                    
+                    // Set clipboard so user can paste manually
+                    System.Windows.Clipboard.SetText(finalText);
+                    
+                    _dictationBar.ShowError("Insertion cancelled. Paste with Ctrl+V.");
+                    return;
+                }
+            }
+            
             _dictationBar.Hide();
             
             // Get file names for @ mention detection and Tab tagging (only file names, not symbols)
@@ -549,6 +646,7 @@ public class DictationOrchestrator
         finally
         {
             _isProcessing = false;
+            _isMaxDurationScenario = false;  // Reset max duration flag
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();

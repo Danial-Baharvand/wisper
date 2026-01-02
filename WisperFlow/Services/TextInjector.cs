@@ -320,6 +320,68 @@ public class TextInjector
         await Task.Delay(5, cancellationToken);
         keybd_event(VK_TAB, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
     }
+    
+    /// <summary>
+    /// Checks if the Windows key (left or right) is currently pressed.
+    /// </summary>
+    private bool IsWindowsKeyPressed()
+    {
+        // GetAsyncKeyState returns negative (high bit set) if key is currently down
+        return (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || 
+               (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    }
+    
+    /// <summary>
+    /// Checks if the Control key is currently pressed.
+    /// </summary>
+    private bool IsControlKeyPressed()
+    {
+        return (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    }
+    
+    /// <summary>
+    /// Waits for modifier keys (Ctrl+Win) to be released before allowing paste.
+    /// Used when recording stops automatically (max duration) while user still holds hotkeys.
+    /// </summary>
+    /// <param name="timeoutSeconds">How long to wait before giving up</param>
+    /// <param name="onWaitingStarted">Called when we start waiting (user is holding keys)</param>
+    /// <returns>True if keys were released, false if timeout expired</returns>
+    public async Task<bool> WaitForHotkeysReleasedAsync(int timeoutSeconds = 10, Action? onWaitingStarted = null)
+    {
+        // Quick check - if keys aren't held, return immediately
+        if (!IsWindowsKeyPressed() && !IsControlKeyPressed())
+        {
+            _logger.LogDebug("Hotkeys not pressed, proceeding immediately");
+            return true;
+        }
+        
+        // User is holding keys - notify and wait
+        _logger.LogInformation("Waiting for user to release hotkeys (Ctrl+Win)...");
+        onWaitingStarted?.Invoke();
+        
+        var startTime = DateTime.UtcNow;
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        
+        while (DateTime.UtcNow - startTime < timeout)
+        {
+            // Check every 50ms
+            await Task.Delay(50);
+            
+            // Check if both modifier keys are released
+            if (!IsWindowsKeyPressed() && !IsControlKeyPressed())
+            {
+                var elapsed = DateTime.UtcNow - startTime;
+                _logger.LogInformation("Hotkeys released after {Elapsed:F1}s", elapsed.TotalSeconds);
+                
+                // Small delay to ensure key-up events are processed
+                await Task.Delay(50);
+                return true;
+            }
+        }
+        
+        _logger.LogWarning("Hotkey release timeout after {Timeout}s", timeoutSeconds);
+        return false;
+    }
 
     public async Task InjectTextAsync(string text, CancellationToken cancellationToken = default)
     {
@@ -492,10 +554,15 @@ public class TextInjector
     private const byte VK_CONTROL = 0x11;
     private const byte VK_V = 0x56;
     private const byte VK_TAB = 0x09;
+    private const byte VK_LWIN = 0x5B;
+    private const byte VK_RWIN = 0x5C;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
     private const uint GMEM_MOVEABLE = 0x0002;
     private const int INPUT_KEYBOARD = 1;
+    
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);

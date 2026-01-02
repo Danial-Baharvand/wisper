@@ -12,8 +12,15 @@ public class AudioRecorder : IDisposable
     private string? _tempFilePath;
     private bool _isRecording;
     private DateTime _recordingStartTime;
-    private int _maxDurationSeconds = 120;
+    // Hardcoded duration limits (not configurable to prevent excessive API costs)
+    // For testing, change these values directly
+    private const int MaxDurationSeconds = 300;  // 5 minutes
+    private const int WarningDurationSeconds = 240;  // 4 minutes (1 minute before max)
+    
+    private int _maxDurationSeconds = MaxDurationSeconds;
+    private int _warningDurationSeconds = WarningDurationSeconds;
     private System.Timers.Timer? _maxDurationTimer;
+    private System.Timers.Timer? _warningTimer;
     private bool _disposed;
     private int _selectedDeviceNumber = -1;
     private long _totalBytesRecorded; // DEBUG
@@ -23,6 +30,7 @@ public class AudioRecorder : IDisposable
     public event EventHandler? RecordingStarted;
     public event EventHandler<TimeSpan>? RecordingProgress;
     public event EventHandler? MaxDurationReached;
+    public event EventHandler? WarningDurationReached;
     /// <summary>
     /// Event fired when audio data is available during recording (for streaming transcription).
     /// </summary>
@@ -35,10 +43,20 @@ public class AudioRecorder : IDisposable
 
     public bool IsRecording => _isRecording;
     public TimeSpan RecordingDuration => _isRecording ? DateTime.Now - _recordingStartTime : TimeSpan.Zero;
+    public string? CurrentFilePath => _tempFilePath;
 
     public AudioRecorder(ILogger<AudioRecorder> logger) { _logger = logger; }
 
-    public void SetMaxDuration(int seconds) { _maxDurationSeconds = seconds; }
+    
+    /// <summary>
+    /// Gets the remaining time in seconds before max duration.
+    /// </summary>
+    public int GetRemainingSeconds()
+    {
+        if (!_isRecording) return _maxDurationSeconds;
+        var elapsed = (DateTime.Now - _recordingStartTime).TotalSeconds;
+        return Math.Max(0, (int)(_maxDurationSeconds - elapsed));
+    }
 
     public void SetDevice(int deviceNumber)
     {
@@ -96,6 +114,16 @@ public class AudioRecorder : IDisposable
             _waveIn.DataAvailable += OnDataAvailable;
             _waveIn.RecordingStopped += OnRecordingStopped;
 
+            // Warning timer (fires 1 minute before max)
+            if (_warningDurationSeconds > 0 && _warningDurationSeconds < _maxDurationSeconds)
+            {
+                _warningTimer = new System.Timers.Timer(_warningDurationSeconds * 1000);
+                _warningTimer.Elapsed += OnWarningDurationElapsed;
+                _warningTimer.AutoReset = false;
+                _warningTimer.Start();
+            }
+            
+            // Max duration timer
             _maxDurationTimer = new System.Timers.Timer(_maxDurationSeconds * 1000);
             _maxDurationTimer.Elapsed += OnMaxDurationElapsed;
             _maxDurationTimer.AutoReset = false;
@@ -124,6 +152,10 @@ public class AudioRecorder : IDisposable
         {
             // Set flag FIRST to signal OnDataAvailable to stop writing
             _isRecording = false;
+            
+            _warningTimer?.Stop();
+            _warningTimer?.Dispose();
+            _warningTimer = null;
             
             _maxDurationTimer?.Stop();
             _maxDurationTimer?.Dispose();
@@ -230,13 +262,26 @@ public class AudioRecorder : IDisposable
         return Math.Clamp(level, 0f, 1f);
     }
 
+    private void OnWarningDurationElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        int remainingSeconds = _maxDurationSeconds - _warningDurationSeconds;
+        _logger.LogWarning("Recording duration warning ({WarningDuration}s elapsed) - {Remaining}s remaining", 
+            _warningDurationSeconds, remainingSeconds);
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            WarningDurationReached?.Invoke(this, EventArgs.Empty);
+        });
+    }
+    
     private void OnMaxDurationElapsed(object? sender, System.Timers.ElapsedEventArgs e)
     {
         _logger.LogWarning("Maximum recording duration reached ({MaxDuration}s)", _maxDurationSeconds);
         System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
         {
-            MaxDurationReached?.Invoke(this, EventArgs.Empty);
+            // Stop recording FIRST so the file is saved, then fire event
+            // The event handler can use CurrentFilePath to get the audio file
             StopRecording();
+            MaxDurationReached?.Invoke(this, EventArgs.Empty);
         });
     }
 
@@ -246,6 +291,7 @@ public class AudioRecorder : IDisposable
         {
             _waveWriter?.Dispose(); _waveWriter = null;
             _waveIn?.Dispose(); _waveIn = null;
+            _warningTimer?.Dispose(); _warningTimer = null;
             _maxDurationTimer?.Dispose(); _maxDurationTimer = null;
             _isRecording = false;
             if (_tempFilePath != null && File.Exists(_tempFilePath))

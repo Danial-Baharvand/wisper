@@ -37,6 +37,12 @@ public partial class DictationBar : Window
     private Storyboard? _transcriptCollapseAnimation;
     private Storyboard? _mainBarExpandAnimation;
     private Storyboard? _mainBarContractAnimation;
+    private Storyboard? _warningFadeInAnimation;
+    private Storyboard? _warningFadeOutAnimation;
+    
+    // Warning bar timers
+    private DispatcherTimer? _warningHideTimer;
+    private DispatcherTimer? _warningFadeCompleteTimer;  // Timer that fires after fade-out animation completes
     
     // Voice bars
     private Rectangle[] _bars = null!;
@@ -59,6 +65,7 @@ public partial class DictationBar : Window
     private string _committedText = "";
     private string _currentInterim = "";
     private bool _transcriptVisible = false;
+    
     
     // Win32 constants
     private const int GWL_EXSTYLE = -20;
@@ -85,6 +92,8 @@ public partial class DictationBar : Window
         _transcriptCollapseAnimation = (Storyboard)Resources["TranscriptCollapseAnimation"];
         _mainBarExpandAnimation = (Storyboard)Resources["MainBarExpandAnimation"];
         _mainBarContractAnimation = (Storyboard)Resources["MainBarContractAnimation"];
+        _warningFadeInAnimation = (Storyboard)Resources["WarningFadeInAnimation"];
+        _warningFadeOutAnimation = (Storyboard)Resources["WarningFadeOutAnimation"];
         
         // Initialize bars array
         _bars = new[] { Bar1, Bar2, Bar3, Bar4, Bar5, Bar6, Bar7, Bar8, Bar9 };
@@ -369,6 +378,12 @@ public partial class DictationBar : Window
         // Expand main bar slightly
         _mainBarExpandAnimation?.Begin();
         
+        // Hide transcript bar first (they share the same position)
+        if (_transcriptVisible)
+        {
+            HideTranscriptBar();
+        }
+        
         // Show hint bar
         _hintExpandAnimation?.Begin();
         
@@ -491,28 +506,105 @@ public partial class DictationBar : Window
     }
     
     /// <summary>
-    /// Called when an error occurs.
+    /// Called when an error occurs. Shows warning bar above transcript bar.
+    /// Both bars stay visible for the duration, then fade out together.
     /// </summary>
-    public void ShowError(string message)
+    public void ShowError(string message, int displaySeconds = 5)
     {
         Dispatcher.Invoke(() =>
         {
             TransitionToState(BarState.Error);
             
-            // Show error in transcript bar briefly
-            TranscriptRun.Text = "⚠ " + message;
-            TranscriptRun.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#ffa502"));
-            ShowTranscriptBar();
+            // Hide hint bar (they share the same position)
+            HintBar.Opacity = 0;
             
-            // Auto-hide after 3 seconds
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-            timer.Tick += (s, e) =>
+            // Stop any existing warning timers (including fade-complete timer from previous HideWarning)
+            _warningHideTimer?.Stop();
+            _warningFadeCompleteTimer?.Stop();
+            
+            // Set error text (no icon, just the message)
+            WarningText.Text = message;
+            
+            // Show warning bar with fade in (above transcript if visible)
+            WarningBar.Visibility = Visibility.Visible;
+            _warningFadeInAnimation?.Begin();
+            
+            // Auto-hide both warning and transcript together after displaySeconds
+            _warningHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(displaySeconds) };
+            _warningHideTimer.Tick += (s, e) =>
             {
-                timer.Stop();
-                HideAndReset();
+                _warningHideTimer.Stop();
+                
+                // Hide warning bar with fade
+                HideWarning();
+                
+                // Also hide transcript bar with fade
+                HideTranscriptBar();
+                
+                // After animations complete, reset to idle
+                var resetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+                resetTimer.Tick += (s2, e2) =>
+                {
+                    resetTimer.Stop();
+                    ResetTranscript();
+                    TransitionToState(BarState.Idle);
+                };
+                resetTimer.Start();
             };
-            timer.Start();
+            _warningHideTimer.Start();
         });
+    }
+    
+    /// <summary>
+    /// Shows a warning message above the transcript bar (doesn't hide transcript).
+    /// Auto-fades out after specified duration.
+    /// </summary>
+    public void ShowWarning(string message, int autoHideSeconds = 10)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            // Stop any existing warning timers (including fade-complete timer from previous HideWarning)
+            _warningHideTimer?.Stop();
+            _warningFadeCompleteTimer?.Stop();
+            
+            // Set warning text (no icon, just the message)
+            WarningText.Text = message;
+            
+            // Show warning bar with fade in
+            WarningBar.Visibility = Visibility.Visible;
+            _warningFadeInAnimation?.Begin();
+            
+            // Auto-hide after specified seconds
+            _warningHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(autoHideSeconds) };
+            _warningHideTimer.Tick += (s, e) =>
+            {
+                _warningHideTimer.Stop();
+                HideWarning();
+            };
+            _warningHideTimer.Start();
+        });
+    }
+    
+    /// <summary>
+    /// Hides the warning bar with fade out animation.
+    /// </summary>
+    private void HideWarning()
+    {
+        _warningHideTimer?.Stop();
+        _warningFadeOutAnimation?.Begin();
+        
+        // Stop any existing fade complete timer
+        _warningFadeCompleteTimer?.Stop();
+        
+        // Hide after animation completes (tracked timer so it can be cancelled)
+        _warningFadeCompleteTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _warningFadeCompleteTimer.Tick += (s, e) =>
+        {
+            _warningFadeCompleteTimer?.Stop();
+            WarningBar.Visibility = Visibility.Collapsed;
+            WarningBar.Opacity = 0;
+        };
+        _warningFadeCompleteTimer.Start();
     }
     
     /// <summary>
@@ -568,6 +660,12 @@ public partial class DictationBar : Window
             
             // Show cursor
             TypingCursor.Visibility = Visibility.Visible;
+            
+            // Scroll to end after layout is complete
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                TranscriptScrollViewer.ScrollToEnd();
+            }));
         });
     }
     
@@ -580,6 +678,13 @@ public partial class DictationBar : Window
         {
             ResetTranscript();
             HideTranscriptBar();
+            
+            // Also hide warning bar if visible and stop all warning timers
+            _warningHideTimer?.Stop();
+            _warningFadeCompleteTimer?.Stop();
+            WarningBar.Visibility = Visibility.Collapsed;
+            WarningBar.Opacity = 0;
+            
             TransitionToState(BarState.Idle);
         });
     }
@@ -606,12 +711,15 @@ public partial class DictationBar : Window
     
     #endregion
     
-    #region Transcript Bar Visibility
+    #region Transcript Bar Visibility and Animation
     
     private void ShowTranscriptBar()
     {
         if (_transcriptVisible) return;
         _transcriptVisible = true;
+        
+        // Hide hint bar first (they share the same position)
+        HintBar.Opacity = 0;
         
         TranscriptBar.Visibility = Visibility.Visible;
         _transcriptExpandAnimation?.Begin();
@@ -624,7 +732,7 @@ public partial class DictationBar : Window
         
         _transcriptCollapseAnimation?.Begin();
         
-        // Hide after animation
+        // Hide after animation completes
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
         timer.Tick += (s, e) =>
         {
