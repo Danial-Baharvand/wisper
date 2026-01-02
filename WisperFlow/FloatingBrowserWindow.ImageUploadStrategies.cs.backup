@@ -1,0 +1,1810 @@
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows;
+using Microsoft.Web.WebView2.Core;
+
+namespace WisperFlow;
+
+/// <summary>
+/// EXPERIMENTAL: Image upload strategies for testing.
+/// 
+/// TO REMOVE AFTER TESTING:
+/// 1. Delete this file: FloatingBrowserWindow.ImageUploadStrategies.cs
+/// 2. Remove the strategy test panel from FloatingBrowserWindow.xaml (the Border with StrategyTestPanel)
+/// 3. Remove StrategyButton_Click method from FloatingBrowserWindow.xaml.cs
+/// 4. Remove _activeUploadStrategy field and SetUploadStrategy method
+/// 5. Simplify UploadScreenshotAsync to just call UploadScreenshotOriginalAsync
+/// 6. Keep only the working strategy implementation in UploadScreenshotAsync
+/// </summary>
+public partial class FloatingBrowserWindow
+{
+    /// <summary>
+    /// Current active upload strategy (for testing).
+    /// Set via test buttons in UI.
+    /// </summary>
+    private int _activeUploadStrategy = 0; // 0 = original, 1-6 = test strategies
+
+    /// <summary>
+    /// Sets the active upload strategy for testing.
+    /// </summary>
+    public void SetUploadStrategy(int strategyIndex)
+    {
+        _activeUploadStrategy = strategyIndex;
+    }
+
+    /// <summary>
+    /// Uploads screenshot using the currently selected strategy.
+    /// </summary>
+    private async Task UploadScreenshotWithStrategyAsync(byte[] screenshotBytes, int strategyIndex)
+    {
+        var webView = ActiveWebView;
+        if (webView?.CoreWebView2 == null) return;
+
+        try
+        {
+            var base64Image = Convert.ToBase64String(screenshotBytes);
+            
+            switch (strategyIndex)
+            {
+                case 1:
+                    await Strategy1_EnhancedClipboardPasteAsync(webView, screenshotBytes, base64Image);
+                    break;
+                case 2:
+                    await Strategy2_JavaScriptFileInputAsync(webView, base64Image);
+                    break;
+                case 3:
+                    await Strategy3_DragAndDropAsync(webView, base64Image);
+                    break;
+                case 4:
+                    await Strategy4_DirectDOMFileInputAsync(webView, base64Image);
+                    break;
+                case 5:
+                    await Strategy5_HybridFallbackAsync(webView, screenshotBytes, base64Image);
+                    break;
+                case 6:
+                    await Strategy6_PostMessageAsync(webView, base64Image);
+                    break;
+                case 7:
+                    await Strategy7_ButtonTriggeredUploadAsync(webView, base64Image);
+                    break;
+                case 8:
+                    await Strategy8_GeminiEnhancedClipboardAsync(webView, screenshotBytes, base64Image);
+                    break;
+                case 9:
+                    await Strategy9_DialogInterceptAsync(webView, base64Image);
+                    break;
+                case 10:
+                    await Strategy10_MultiMethodGeminiAsync(webView, screenshotBytes, base64Image);
+                    break;
+                case 11:
+                    await Strategy11_GeminiNativeAsync(webView, screenshotBytes, base64Image);
+                    break;
+                default:
+                    // Original strategy (strategy 0)
+                    await UploadScreenshotOriginalAsync(screenshotBytes);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Strategy {strategyIndex} failed: {ex.Message}");
+        }
+    }
+
+    #region Strategy 1: Enhanced Clipboard Paste with Verification & Retry
+
+    private async Task Strategy1_EnhancedClipboardPasteAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, byte[] screenshotBytes, string base64Image)
+    {
+        const int maxRetries = 3;
+        const int retryDelayMs = 500;
+
+        for (int attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                // Create bitmap and set to clipboard
+                using var ms = new System.IO.MemoryStream(screenshotBytes);
+                var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+                bitmapImage.BeginInit();
+                bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bitmapImage.StreamSource = ms;
+                bitmapImage.EndInit();
+                bitmapImage.Freeze();
+                Clipboard.SetImage(bitmapImage);
+
+                // Enhanced focus handling
+                var focusScript = GetFocusInputScript(_currentProvider);
+                await webView.CoreWebView2.ExecuteScriptAsync(focusScript);
+                await Task.Delay(300);
+
+                // Focus WebView multiple times for reliability
+                webView.Focus();
+                await Task.Delay(150);
+                webView.Focus();
+                await Task.Delay(100);
+
+                // Use SendInput for more reliable paste
+                SendCtrlV();
+                await Task.Delay(2000); // Longer wait for upload
+
+                // Verify image was added (check DOM for image elements)
+                var verifyScript = GetImageVerificationScript(_currentProvider);
+                var result = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+                
+                if (result == "true")
+                {
+                    System.Diagnostics.Debug.WriteLine($"Strategy 1: Image uploaded successfully on attempt {attempt + 1}");
+                    return; // Success!
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"Strategy 1: Verification failed on attempt {attempt + 1}, result: {result}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Strategy 1 attempt {attempt + 1} failed: {ex.Message}");
+            }
+
+            if (attempt < maxRetries - 1)
+            {
+                await Task.Delay(retryDelayMs);
+            }
+        }
+
+        System.Diagnostics.Debug.WriteLine("Strategy 1: All attempts failed");
+    }
+
+    #endregion
+
+    #region Strategy 2: JavaScript File Input Simulation
+
+    private async Task Strategy2_JavaScriptFileInputAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+        var script = $@"
+            (function() {{
+                try {{
+                    console.log('Strategy 2: Starting file input simulation for {provider}');
+
+                    // Convert base64 to Blob
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    let fileInput = null;
+
+                    if ('{provider}' === 'chatgpt') {{
+                        // ChatGPT specific selectors
+                        fileInput = document.querySelector('input[type=""file""]')
+                                 || document.querySelector('input[accept*=""image""]')
+                                 || document.querySelector('input[data-testid*=""file""]');
+
+                        console.log('ChatGPT: Found file input:', fileInput);
+                    }} else if ('{provider}' === 'gemini') {{
+                        // Gemini specific selectors - more comprehensive search
+                        const selectors = [
+                            'input[type=""file""]',
+                            'input[accept*=""image""]',
+                            'input[accept*=""png""]',
+                            'input[accept*=""jpg""]',
+                            'input[accept*=""jpeg""]',
+                            'input[data-testid*=""file""]',
+                            'input[aria-label*=""upload""]',
+                            'input[aria-label*=""file""]',
+                            'input[aria-label*=""image""]'
+                        ];
+
+                        for (const selector of selectors) {{
+                            fileInput = document.querySelector(selector);
+                            if (fileInput) {{
+                                console.log('Gemini: Found file input with selector:', selector, fileInput);
+                                break;
+                            }}
+                        }}
+
+                        // If still not found, search within specific containers
+                    if (!fileInput) {{
+                            const containers = [
+                                '.input-area',
+                                '.text-input-field',
+                                '.input-container',
+                                '[role=""textbox""]',
+                                '.message-input',
+                                '.chat-input'
+                            ];
+
+                            for (const containerSel of containers) {{
+                                const container = document.querySelector(containerSel);
+                                if (container) {{
+                                    for (const selector of selectors) {{
+                                        fileInput = container.querySelector(selector);
+                                        if (fileInput) {{
+                                            console.log('Gemini: Found file input in container', containerSel, 'with selector:', selector, fileInput);
+                                            break;
+                                        }}
+                                    }}
+                                    if (fileInput) break;
+                                }}
+                            }}
+                        }}
+
+                        // Last resort: find all file inputs and pick the most likely one
+                        if (!fileInput) {{
+                            const allFileInputs = Array.from(document.querySelectorAll('input[type=""file""]'));
+                            console.log('Gemini: All file inputs found:', allFileInputs.length);
+
+                            // Prioritize inputs that accept images or are visible
+                            fileInput = allFileInputs.find(input =>
+                                (input.accept && (input.accept.includes('image') || input.accept.includes('png') || input.accept.includes('jpg')))
+                                || input.offsetParent !== null
+                                || input.style.display !== 'none'
+                            ) || allFileInputs[0];
+
+                    if (fileInput) {{
+                                console.log('Gemini: Selected file input:', fileInput, 'accept:', fileInput.accept);
+                            }}
+                        }}
+                    }}
+
+                    if (fileInput) {{
+                        console.log('File input found, setting file...');
+
+                        // Create DataTransfer and set file
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        fileInput.files = dataTransfer.files;
+
+                        console.log('File set, triggering events...');
+
+                        // Trigger multiple events to ensure upload starts
+                        const changeEvent = new Event('change', {{ bubbles: true, cancelable: true }});
+                        fileInput.dispatchEvent(changeEvent);
+
+                        const inputEvent = new Event('input', {{ bubbles: true }});
+                        fileInput.dispatchEvent(inputEvent);
+
+                        // For Gemini, also try click event
+                        if ('{provider}' === 'gemini') {{
+                            setTimeout(() => {{
+                                const clickEvent = new Event('click', {{ bubbles: true }});
+                                fileInput.dispatchEvent(clickEvent);
+                                console.log('Gemini: Click event dispatched');
+                            }}, 100);
+                        }}
+
+                        return 'success';
+                    }}
+
+                    console.log('No file input found');
+                    return 'no-input-found';
+                }} catch (e) {{
+                    console.error('Strategy 2 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 2 ({provider}) result: {result}");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 2 ({provider}) verification: {verifyResult}");
+
+        await Task.Delay(2000); // Wait for upload to process
+    }
+
+    #endregion
+
+    #region Strategy 3: Drag & Drop via JavaScript
+
+    private async Task Strategy3_DragAndDropAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+        var script = $@"
+            (function() {{
+                try {{
+                    console.log('Strategy 3: Starting drag & drop simulation for {provider}');
+
+                    // Convert base64 to Blob
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    // Find the input area (drop target) - provider specific
+                    let inputArea = null;
+
+                    if ('{provider}' === 'chatgpt') {{
+                        inputArea = document.querySelector('#prompt-textarea')
+                                  || document.querySelector('div[contenteditable=""true""]')
+                                  || document.querySelector('.ql-editor');
+
+                        console.log('ChatGPT: Found drop target:', inputArea);
+                    }} else if ('{provider}' === 'gemini') {{
+                        // Gemini specific drop targets (based on source code)
+                        const geminiSelectors = [
+                            // Primary: Gemini's textarea (from source code)
+                            'textarea[placeholder*="Ask Gemini"]',
+                            'textarea[placeholder*="Gemini"]',
+                            '.gds-body-l', // Gemini's textarea class
+
+                            // Secondary: contenteditable areas
+                            '.ql-editor',
+                            'div[contenteditable="true"]',
+                            '.text-input-field',
+                            '.input-area [contenteditable="true"]'
+                        ];
+
+                        for (const selector of geminiSelectors) {{
+                            inputArea = document.querySelector(selector);
+                            if (inputArea) {{
+                                console.log('Gemini: Found drop target with selector:', selector, inputArea);
+                                break;
+                            }}
+                        }}
+
+                        // If not found, try finding any contenteditable area
+                    if (!inputArea) {{
+                            const editables = Array.from(document.querySelectorAll('[contenteditable=""true""]'));
+                            console.log('Gemini: Found', editables.length, 'contenteditable areas');
+
+                            // Prefer larger, visible areas
+                            inputArea = editables.find(el =>
+                                el.offsetParent !== null &&
+                                el.clientHeight > 20 &&
+                                el.clientWidth > 100
+                            ) || editables[0];
+
+                            if (inputArea) {{
+                                console.log('Gemini: Selected contenteditable area:', inputArea);
+                            }}
+                        }}
+                    }}
+
+                    if (!inputArea) {{
+                        console.log('No drop target found');
+                        return 'no-drop-target';
+                    }}
+
+                    console.log('Drop target found, simulating drag & drop...');
+
+                    // Create DataTransfer with file
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    dataTransfer.effectAllowed = 'all';
+                    dataTransfer.dropEffect = 'copy';
+
+                    // Simulate drag and drop sequence with more comprehensive events
+                    const dragEnterEvent = new DragEvent('dragenter', {{
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    }});
+                    inputArea.dispatchEvent(dragEnterEvent);
+                    console.log('Drag enter dispatched');
+
+                    setTimeout(() => {{
+                    const dragOverEvent = new DragEvent('dragover', {{
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    }});
+                    inputArea.dispatchEvent(dragOverEvent);
+                        console.log('Drag over dispatched');
+
+                        setTimeout(() => {{
+                    const dropEvent = new DragEvent('drop', {{
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: dataTransfer
+                    }});
+                    inputArea.dispatchEvent(dropEvent);
+                            console.log('Drop event dispatched');
+
+                            // For Gemini, also dispatch a final dragend
+                            if ('{provider}' === 'gemini') {{
+                                setTimeout(() => {{
+                                    const dragEndEvent = new DragEvent('dragend', {{
+                                        bubbles: true,
+                                        dataTransfer: dataTransfer
+                                    }});
+                                    inputArea.dispatchEvent(dragEndEvent);
+                                    console.log('Drag end dispatched');
+                                }}, 50);
+                            }}
+                        }}, 150);
+                    }}, 150);
+
+                    return 'dispatched';
+                }} catch (e) {{
+                    console.error('Strategy 3 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 3 ({provider}) result: {result}");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 3 ({provider}) verification: {verifyResult}");
+
+        // For Gemini, give more time for the drag & drop to process
+        var delay = provider == "gemini" ? 3000 : 2000;
+        await Task.Delay(delay);
+    }
+
+    #endregion
+
+    #region Strategy 4: Direct DOM File Input Manipulation
+
+    private async Task Strategy4_DirectDOMFileInputAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+        var script = $@"
+            (function() {{
+                try {{
+                    console.log('Strategy 4: Starting DOM file input manipulation for {provider}');
+
+                    // Find all file inputs (including hidden ones)
+                    const fileInputs = Array.from(document.querySelectorAll('input[type=""file""]'));
+                    console.log('Found', fileInputs.length, 'file inputs total');
+
+                    let fileInput = null;
+
+                    if ('{provider}' === 'chatgpt') {{
+                        // ChatGPT specific prioritization
+                        fileInput = fileInputs.find(input =>
+                        input.accept && input.accept.includes('image')
+                    ) || fileInputs.find(input => 
+                        input.offsetParent !== null // visible
+                    ) || fileInputs[0];
+
+                    if (!fileInput) {{
+                        fileInput = document.querySelector('input[data-testid*=""file""]')
+                                 || document.querySelector('input[accept*=""image""]');
+                        }}
+                        console.log('ChatGPT: Selected file input:', fileInput);
+                    }} else if ('{provider}' === 'gemini') {{
+                        // Gemini specific logic - more comprehensive search
+                        console.log('Gemini: Analyzing file inputs...');
+
+                        // Log all file inputs for debugging
+                        fileInputs.forEach((input, index) => {{
+                            console.log('Input ' + index + ':', {{
+                                accept: input.accept,
+                                style: input.style.display,
+                                visible: input.offsetParent !== null,
+                                dataAttrs: Array.from(input.attributes).filter(attr => attr.name.startsWith('data-')).map(attr => attr.name + '=' + attr.value)
+                            }});
+                        }});
+
+                        // Prioritize by multiple criteria for Gemini
+                        fileInput = fileInputs.find(input =>
+                            input.accept && (input.accept.includes('image') || input.accept.includes('*'))
+                        ) || fileInputs.find(input =>
+                            input.offsetParent !== null && input.style.display !== 'none'
+                        ) || fileInputs.find(input =>
+                            input.getAttribute('aria-label') && input.getAttribute('aria-label').toLowerCase().includes('upload')
+                        ) || fileInputs.find(input =>
+                            input.getAttribute('data-testid') && input.getAttribute('data-testid').includes('file')
+                        ) || fileInputs[0];
+
+                        console.log('Gemini: Selected file input:', fileInput);
+                        if (fileInput) {{
+                            console.log('Gemini: Input details - accept:', fileInput.accept, 'visible:', fileInput.offsetParent !== null, 'display:', fileInput.style.display);
+                        }}
+                    }}
+
+                    if (!fileInput) {{
+                        console.log('No suitable file input found');
+                        return 'no-file-input-found';
+                    }}
+
+                    console.log('Converting base64 to file...');
+
+                    // Convert base64 to File
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    console.log('Setting file on input...');
+
+                    // Try multiple approaches to set the file
+                    let success = false;
+
+                    // Method 1: Direct files property (most common)
+                    try {{
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                        fileInput.files = dataTransfer.files;
+                        console.log('Method 1: Direct files property set');
+                        success = true;
+                    }} catch (e) {{
+                        console.log('Method 1 failed:', e.message);
+                    }}
+
+                    // Method 2: Object.defineProperty (for protected inputs)
+                    if (!success) {{
+                    try {{
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                        Object.defineProperty(fileInput, 'files', {{
+                            value: dataTransfer.files,
+                                writable: true,
+                            configurable: true
+                        }});
+                            console.log('Method 2: Object.defineProperty worked');
+                            success = true;
+                    }} catch (e) {{
+                            console.log('Method 2 failed:', e.message);
+                        }}
+                    }}
+
+                    // Method 3: Prototype manipulation (last resort)
+                    if (!success && '{provider}' === 'gemini') {{
+                        try {{
+                            const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files');
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+
+                            Object.defineProperty(fileInput, 'files', {{
+                                get: () => dataTransfer.files,
+                                set: () => dataTransfer.files,
+                                configurable: true
+                            }});
+                            console.log('Method 3: Prototype manipulation worked');
+                            success = true;
+                        }} catch (e) {{
+                            console.log('Method 3 failed:', e.message);
+                        }}
+                    }}
+
+                    if (!success) {{
+                        console.log('All file setting methods failed, trying click fallback');
+                        fileInput.click();
+                        return 'clicked-input-may-need-manual';
+                    }}
+
+                    console.log('Triggering events...');
+
+                    // Trigger multiple events to ensure upload starts
+                    const events = ['change', 'input', 'blur', 'focus'];
+                    events.forEach(eventType => {{
+                        try {{
+                            const event = new Event(eventType, {{ bubbles: true, cancelable: true }});
+                            fileInput.dispatchEvent(event);
+                            console.log('Dispatched', eventType, 'event');
+                        }} catch (e) {{
+                            console.log('Failed to dispatch', eventType, 'event:', e.message);
+                        }}
+                    }});
+
+                    // For Gemini, also try a delayed click
+                    if ('{provider}' === 'gemini') {{
+                        setTimeout(() => {{
+                            try {{
+                                const clickEvent = new Event('click', {{ bubbles: true }});
+                                fileInput.dispatchEvent(clickEvent);
+                                console.log('Gemini: Delayed click event dispatched');
+                            }} catch (e) {{
+                                console.log('Gemini: Delayed click failed:', e.message);
+                            }}
+                        }}, 200);
+                    }}
+
+                    return 'success';
+                }} catch (e) {{
+                    console.error('Strategy 4 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 4 ({provider}) result: {result}");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 4 ({provider}) verification: {verifyResult}");
+
+        // For Gemini, give more time for processing
+        var delay = provider == "gemini" ? 3000 : 2000;
+        await Task.Delay(delay);
+    }
+
+    #endregion
+
+    #region Strategy 5: Hybrid Fallback Chain
+
+    private async Task Strategy5_HybridFallbackAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, byte[] screenshotBytes, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+        System.Diagnostics.Debug.WriteLine($"Strategy 5: Trying hybrid approach for {provider}...");
+
+        if (provider == "gemini")
+        {
+            // Gemini-specific hybrid approach
+            System.Diagnostics.Debug.WriteLine("Strategy 5: Using Gemini-specific hybrid approach");
+
+            // Try Strategy 7 first (Button Triggered)
+            await Strategy7_ButtonTriggeredUploadAsync(webView, base64Image);
+            await Task.Delay(1000);
+
+            // Check if it worked
+            var verifyScript = GetImageVerificationScript(provider);
+            var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+            if (verifyResult == "true")
+            {
+                System.Diagnostics.Debug.WriteLine("Strategy 5: Button-triggered upload succeeded");
+                return;
+            }
+
+            // Try Strategy 10 (Multi-Method)
+            await Strategy10_MultiMethodGeminiAsync(webView, screenshotBytes, base64Image);
+            await Task.Delay(1000);
+
+            // Final check
+            verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+            if (verifyResult == "true")
+            {
+                System.Diagnostics.Debug.WriteLine("Strategy 5: Multi-method succeeded");
+                return;
+            }
+
+            // Final fallback to enhanced clipboard
+            System.Diagnostics.Debug.WriteLine("Strategy 5: All Gemini methods failed, using enhanced clipboard");
+            await Strategy8_GeminiEnhancedClipboardAsync(webView, screenshotBytes, base64Image);
+        }
+        else
+        {
+            // Original hybrid approach for ChatGPT and others
+        // Try Strategy 2 first (JavaScript File Input)
+            var script2 = GetFileInputScript(base64Image, provider);
+        var result2 = await webView.CoreWebView2.ExecuteScriptAsync(script2);
+        System.Diagnostics.Debug.WriteLine($"Strategy 5 - File Input: {result2}");
+        
+        if (result2.Contains("success") || result2.Contains("dispatched"))
+        {
+            await Task.Delay(2000);
+            return;
+        }
+
+        await Task.Delay(500);
+
+        // Try Strategy 3 (Drag & Drop)
+            var script3 = GetDragDropScript(base64Image, provider);
+        var result3 = await webView.CoreWebView2.ExecuteScriptAsync(script3);
+        System.Diagnostics.Debug.WriteLine($"Strategy 5 - Drag & Drop: {result3}");
+        
+        if (result3.Contains("dispatched") || result3.Contains("success"))
+        {
+            await Task.Delay(2000);
+            return;
+        }
+
+        await Task.Delay(500);
+
+        // Fallback to Strategy 1 (Enhanced Clipboard)
+        System.Diagnostics.Debug.WriteLine("Strategy 5: Falling back to clipboard paste");
+        await Strategy1_EnhancedClipboardPasteAsync(webView, screenshotBytes, base64Image);
+        }
+    }
+
+    private static string GetFileInputScript(string base64Image, string provider = "chatgpt")
+    {
+        return $@"
+            (function() {{
+                try {{
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    let fileInput = null;
+
+                    if ('{provider}' === 'chatgpt') {{
+                        fileInput = document.querySelector('input[type=""file""]')
+                                 || document.querySelector('input[accept*=""image""]')
+                                 || document.querySelector('input[data-testid*=""file""]');
+                    }} else if ('{provider}' === 'gemini') {{
+                        // Gemini specific selectors
+                        const selectors = [
+                            'input[type=""file""]',
+                            'input[accept*=""image""]',
+                            'input[aria-label*=""upload""]',
+                            'input[data-testid*=""file""]'
+                        ];
+
+                        for (const selector of selectors) {{
+                            fileInput = document.querySelector(selector);
+                            if (fileInput) break;
+                        }}
+
+                        // If still not found, look in containers
+                        if (!fileInput) {{
+                            const containers = ['.input-area', '.text-input-field'];
+                            for (const containerSel of containers) {{
+                                const container = document.querySelector(containerSel);
+                                if (container) {{
+                                    for (const selector of selectors) {{
+                                        fileInput = container.querySelector(selector);
+                                        if (fileInput) break;
+                                    }}
+                                    if (fileInput) break;
+                                }}
+                            }}
+                        }}
+                    }}
+
+                    if (fileInput) {{
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        fileInput.files = dataTransfer.files;
+                        fileInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        fileInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        return 'success';
+                    }}
+                    return 'no-input';
+                }} catch (e) {{
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+    }
+
+    private static string GetDragDropScript(string base64Image, string provider = "chatgpt")
+    {
+        return $@"
+            (function() {{
+                try {{
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    let inputArea = null;
+
+                    if ('{provider}' === 'chatgpt') {{
+                        inputArea = document.querySelector('#prompt-textarea')
+                                  || document.querySelector('div[contenteditable=""true""]')
+                                  || document.querySelector('.ql-editor');
+                    }} else if ('{provider}' === 'gemini') {{
+                        // Gemini specific drop targets
+                        const selectors = [
+                            '.ql-editor',
+                            'div[contenteditable=""true""]',
+                            '.text-input-field',
+                            '.input-area [contenteditable=""true""]'
+                        ];
+
+                        for (const selector of selectors) {{
+                            inputArea = document.querySelector(selector);
+                            if (inputArea) break;
+                        }}
+
+                        // Fallback to any contenteditable
+                        if (!inputArea) {{
+                            inputArea = document.querySelector('[contenteditable=""true""]');
+                        }}
+                    }}
+
+                    if (!inputArea) return 'no-target';
+
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    inputArea.dispatchEvent(new DragEvent('dragenter', {{ bubbles: true, cancelable: true, dataTransfer: dataTransfer }}));
+                    setTimeout(() => {{
+                        inputArea.dispatchEvent(new DragEvent('drop', {{ bubbles: true, cancelable: true, dataTransfer: dataTransfer }}));
+                    }}, 100);
+                    return 'dispatched';
+                }} catch (e) {{
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+    }
+
+    #endregion
+
+    #region Strategy 6: WebView2 PostMessage + Page Script
+
+    private async Task Strategy6_PostMessageAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        // First, inject a message handler into the page with provider-specific logic
+        var injectScript = $@"
+            (function() {{
+                if (window.__wisperflowImageHandler) return 'already-injected';
+                
+                console.log('Strategy 6: Injecting message handler for {provider}');
+
+                window.__wisperflowImageHandler = function(event) {{
+                    if (event.data.type !== 'wisperflow-upload-image') return;
+                    
+                    console.log('Strategy 6: Received image upload message');
+
+                    try {{
+                        const base64Data = event.data.imageData;
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {{
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }}
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                        const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                        let success = false;
+
+                        // Provider-specific upload logic
+                        if ('{provider}' === 'chatgpt') {{
+                            // ChatGPT: Try file input first
+                        let fileInput = document.querySelector('input[type=""file""]')
+                                         || document.querySelector('input[accept*=""image""]')
+                                         || document.querySelector('input[data-testid*=""file""]');
+                        
+                            if (fileInput) {{
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                            fileInput.files = dataTransfer.files;
+                                fileInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                console.log('ChatGPT: File input method used');
+                                success = true;
+                            }}
+
+                        // Fallback to drag & drop
+                            if (!success) {{
+                        const inputArea = document.querySelector('#prompt-textarea')
+                                      || document.querySelector('div[contenteditable=""true""]')
+                                      || document.querySelector('.ql-editor');
+                        
+                                if (inputArea) {{
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                                    inputArea.dispatchEvent(new DragEvent('drop', {{ bubbles: true, cancelable: true, dataTransfer: dataTransfer }}));
+                                    console.log('ChatGPT: Drag & drop fallback used');
+                                    success = true;
+                                }}
+                            }}
+                        }} else if ('{provider}' === 'gemini') {{
+                            console.log('Gemini: Starting upload process');
+
+                            // Gemini: Comprehensive approach
+                            // Method 1: File input
+                            let fileInput = null;
+                            const selectors = [
+                                'input[type=""file""]',
+                                'input[accept*=""image""]',
+                                'input[aria-label*=""upload""]',
+                                'input[data-testid*=""file""]'
+                            ];
+
+                            for (const selector of selectors) {{
+                                fileInput = document.querySelector(selector);
+                                if (fileInput) {{
+                                    console.log('Gemini: Found file input with selector:', selector);
+                                    break;
+                                }}
+                            }}
+
+                            if (fileInput) {{
+                                try {{
+                                    const dataTransfer = new DataTransfer();
+                                    dataTransfer.items.add(file);
+                                    fileInput.files = dataTransfer.files;
+
+                                    // Trigger multiple events
+                                    fileInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    fileInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+                                    // Try click event
+                                    setTimeout(() => {{
+                                        fileInput.click();
+                                        console.log('Gemini: File input click triggered');
+                                    }}, 100);
+
+                                    console.log('Gemini: File input method completed');
+                                    success = true;
+                                }} catch (e) {{
+                                    console.log('Gemini: File input method failed:', e.message);
+                                }}
+                            }}
+
+                            // Method 2: Drag & drop (if file input didn't work)
+                            if (!success) {{
+                                let inputArea = null;
+                                const dropSelectors = [
+                                    '.ql-editor',
+                                    'div[contenteditable=""true""]',
+                                    '.text-input-field',
+                                    '.input-area [contenteditable=""true""]'
+                                ];
+
+                                for (const selector of dropSelectors) {{
+                                    inputArea = document.querySelector(selector);
+                                    if (inputArea) {{
+                                        console.log('Gemini: Found drop target with selector:', selector);
+                                        break;
+                                    }}
+                                }}
+
+                                if (inputArea) {{
+                                    try {{
+                                        const dataTransfer = new DataTransfer();
+                                        dataTransfer.items.add(file);
+
+                                        // Simulate drag and drop
+                                        inputArea.dispatchEvent(new DragEvent('dragenter', {{ bubbles: true, cancelable: true, dataTransfer: dataTransfer }}));
+                                        setTimeout(() => {{
+                                            inputArea.dispatchEvent(new DragEvent('drop', {{ bubbles: true, cancelable: true, dataTransfer: dataTransfer }}));
+                                            console.log('Gemini: Drag & drop completed');
+                                        }}, 150);
+
+                                        success = true;
+                                    }} catch (e) {{
+                                        console.log('Gemini: Drag & drop method failed:', e.message);
+                                    }}
+                                }}
+                            }}
+
+                            if (success) {{
+                                console.log('Gemini: Upload method succeeded');
+                            }} else {{
+                                console.log('Gemini: All upload methods failed');
+                            }}
+                        }}
+                    }} catch (e) {{
+                        console.error('Strategy 6 upload error:', e);
+                    }}
+                }};
+                
+                window.addEventListener('message', window.__wisperflowImageHandler);
+                console.log('Strategy 6: Message handler injected');
+                return 'injected';
+            }})();
+        ";
+
+        var injectResult = await webView.CoreWebView2.ExecuteScriptAsync(injectScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 6 ({provider}) - Injection: {injectResult}");
+        await Task.Delay(300);
+
+        // Now send the image data via PostWebMessageAsJson
+        var message = new
+        {
+            type = "wisperflow-upload-image",
+            imageData = base64Image
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(message);
+        webView.CoreWebView2.PostWebMessageAsJson(json);
+        
+        System.Diagnostics.Debug.WriteLine($"Strategy 6 ({provider}): Message posted");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 6 ({provider}) verification: {verifyResult}");
+
+        // Give more time for Gemini processing
+        var delay = provider == "gemini" ? 3000 : 2000;
+        await Task.Delay(delay);
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    /// <summary>
+    /// Gets JavaScript to verify if an image was successfully uploaded.
+    /// </summary>
+    private static string GetImageVerificationScript(string provider)
+    {
+        return provider.ToLowerInvariant() switch
+        {
+            "chatgpt" => @"
+                (function() {
+                    console.log('Verifying ChatGPT image upload...');
+
+                    // Check for various image indicators
+                    const indicators = [
+                        'img[src*=""blob:""]',
+                        '.image-preview',
+                        '[data-testid*=""image""]',
+                        '.uploaded-image',
+                        'img[alt*=""uploaded""]',
+                        '.attachment-preview img'
+                    ];
+
+                    for (const selector of indicators) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            console.log('ChatGPT: Found image indicator:', selector, element);
+                            return 'true';
+                        }
+                    }
+
+                    console.log('ChatGPT: No image indicators found');
+                    return 'false';
+                })();",
+            
+            "gemini" => @"
+                (function() {
+                    console.log('Verifying Gemini image upload...');
+
+                    // Gemini specific image indicators
+                    const indicators = [
+                        'img[src*=""blob:""]',
+                        '.uploaded-image',
+                        '[aria-label*=""image""]',
+                        '.image-preview',
+                        '.attachment img',
+                        'img[alt*=""screenshot""]',
+                        'img[alt*=""image""]',
+                        '.media-preview img',
+                        '.file-preview img'
+                    ];
+
+                    for (const selector of indicators) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            console.log('Gemini: Found image indicator:', selector, element);
+                            return 'true';
+                        }
+                    }
+
+                    // Also check for file attachment indicators
+                    const fileIndicators = [
+                        '.file-attachment',
+                        '.attachment-item',
+                        '[data-type=""image""]',
+                        '.uploaded-file img'
+                    ];
+
+                    for (const selector of fileIndicators) {
+                        const element = document.querySelector(selector);
+                        if (element) {
+                            console.log('Gemini: Found file attachment indicator:', selector, element);
+                            return 'true';
+                        }
+                    }
+
+                    console.log('Gemini: No image indicators found');
+                    return 'false';
+                })();",
+            
+            _ => @"console.log('Unknown provider for verification'); false"
+        };
+    }
+
+    #endregion
+
+    #region Strategy 7: Button Triggered Upload
+
+    private async Task Strategy7_ButtonTriggeredUploadAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        if (provider != "gemini")
+        {
+            // Fallback to original method for non-Gemini
+            await UploadScreenshotOriginalAsync(System.Convert.FromBase64String(base64Image));
+            return;
+        }
+
+        var script = $@"
+            (function() {{
+                console.log('Strategy 7: Starting button-triggered upload for Gemini');
+
+                try {{
+                    // Convert base64 to Blob
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    // Step 1: Look for Gemini's upload elements (based on source code analysis)
+                    const uploadSelectors = [
+                        // Primary: mat-icon with upload-icon class (from Gemini source)
+                        'mat-icon.upload-icon',
+                        'mat-icon[class*="upload"]',
+                        '[class*="upload-icon"]',
+
+                        // Secondary: mat-icon with add_2 (plus icon)
+                        'mat-icon:has-text("add_2")',
+
+                        // Fallback: any clickable mat-icon
+                        'mat-icon[role="button"]',
+                        'mat-icon[tabindex]',
+
+                        // Traditional button fallbacks
+                        'button[aria-label*="upload"]',
+                        'button[aria-label*="attach"]',
+                        'button[data-testid*="upload"]'
+                    ];
+
+                    let uploadElement = null;
+                    for (const selector of uploadSelectors) {{
+                        const elements = Array.from(document.querySelectorAll(selector));
+                        console.log('Selector ' + selector + ' found ' + elements.length + ' elements');
+
+                        for (const element of elements) {{
+                            // Check if element is visible
+                            const rect = element.getBoundingClientRect();
+                            const isVisible = rect.width > 0 && rect.height > 0 &&
+                                            window.getComputedStyle(element).display !== 'none' &&
+                                            window.getComputedStyle(element).visibility !== 'hidden';
+
+                            if (isVisible) {{
+                                // For mat-icons, check if it has the add_2 icon or upload-icon class
+                                const isUploadIcon = element.classList.contains('upload-icon') ||
+                                                    element.textContent === 'add_2' ||
+                                                    element.innerHTML === 'add_2' ||
+                                                    element.getAttribute('aria-label')?.toLowerCase().includes('upload');
+
+                                if (isUploadIcon) {{
+                                    uploadElement = element;
+                                    console.log('Found upload element:', selector, element);
+                                    break;
+                                }}
+                            }}
+                        }}
+                        if (uploadElement) break;
+                    }}
+
+                    if (uploadElement) {{
+                        console.log('Clicking upload element...');
+                        uploadElement.click();
+
+                        // Wait a bit for the file dialog or file input to appear
+                        setTimeout(() => {{
+                            // Now look for the file input that appeared
+                            const fileInputs = Array.from(document.querySelectorAll('input[type=""file""]'));
+                            console.log('File inputs after button click:', fileInputs.length);
+
+                            if (fileInputs.length > 0) {{
+                                // Take the most recently added or visible file input
+                                const newFileInput = fileInputs[fileInputs.length - 1];
+                                console.log('Using file input:', newFileInput);
+
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+
+                                try {{
+                                    newFileInput.files = dataTransfer.files;
+                                    newFileInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    newFileInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    console.log('File set on dynamically created input');
+                                }} catch (e) {{
+                                    console.log('Failed to set file on dynamic input:', e.message);
+                                }}
+                            }} else {{
+                                console.log('No file input appeared after button click');
+                            }}
+                        }}, 500);
+
+                        return 'button-clicked';
+                    }} else {{
+                        console.log('No upload button found');
+                        return 'no-upload-button';
+                    }}
+                }} catch (e) {{
+                    console.error('Strategy 7 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 7 (Gemini) result: {result}");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 7 (Gemini) verification: {verifyResult}");
+
+        await Task.Delay(3000); // Give time for upload processing
+    }
+
+    #endregion
+
+    #region Strategy 8: Gemini Enhanced Clipboard
+
+    private async Task Strategy8_GeminiEnhancedClipboardAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, byte[] screenshotBytes, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        if (provider != "gemini")
+        {
+            // Fallback to original method for non-Gemini
+            await UploadScreenshotOriginalAsync(screenshotBytes);
+            return;
+        }
+
+        var script = $@"
+            (function() {{
+                console.log('Strategy 8: Starting Gemini enhanced clipboard method');
+
+                try {{
+                    // Step 1: Find Gemini's input area (based on source code analysis)
+                    const inputSelectors = [
+                        // Primary: Gemini's textarea (from source code)
+                        'textarea[placeholder*="Ask Gemini"]',
+                        'textarea[placeholder*="Gemini"]',
+                        '.gds-body-l', // Gemini's textarea class
+
+                        // Secondary: contenteditable areas
+                        '.ql-editor',
+                        'div[contenteditable="true"]',
+                        '.text-input-field',
+
+                        // Fallback: any input area
+                        '.input-area [contenteditable="true"]',
+                        '.message-input [contenteditable="true"]',
+                        '[role="textbox"][contenteditable="true"]'
+                    ];
+
+                    let inputArea = null;
+                    for (const selector of inputSelectors) {{
+                        inputArea = document.querySelector(selector);
+                        if (inputArea && inputArea.offsetParent !== null) {{
+                            console.log('Found Gemini input area:', selector, inputArea);
+                            break;
+                        }}
+                    }}
+
+                    if (!inputArea) {{
+                        console.log('No Gemini input area found');
+                        return 'no-input-area';
+                    }}
+
+                    // Step 2: Focus the input area with multiple methods
+                    inputArea.focus();
+                    inputArea.click();
+
+                    // Try to ensure the input is active
+                    inputArea.dispatchEvent(new Event('focus', {{ bubbles: true }}));
+                    inputArea.dispatchEvent(new Event('click', {{ bubbles: true }}));
+
+                    console.log('Input area focused and clicked');
+
+                    // Step 3: Wait a bit then paste
+                    setTimeout(() => {{
+                        // Simulate Ctrl+V with multiple methods
+                        const pasteEvent = new ClipboardEvent('paste', {{
+                            bubbles: true,
+                            cancelable: true,
+                            clipboardData: new DataTransfer()
+                        }});
+
+                        // Add image data to clipboard data
+                        const base64Data = '{base64Image}';
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {{
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }}
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {{ type: 'image/png' }});
+
+                        pasteEvent.clipboardData.items.add(blob);
+                        pasteEvent.clipboardData.setData('image/png', blob);
+
+                        inputArea.dispatchEvent(pasteEvent);
+                        console.log('Paste event dispatched with blob data');
+
+                        // Also try keyboard simulation as backup
+                        setTimeout(() => {{
+                            // Simulate Ctrl+V keypress
+                            const keydownEvent = new KeyboardEvent('keydown', {{
+                                key: 'v',
+                                code: 'KeyV',
+                                ctrlKey: true,
+                                bubbles: true
+                            }});
+                            inputArea.dispatchEvent(keydownEvent);
+
+                            const keyupEvent = new KeyboardEvent('keyup', {{
+                                key: 'v',
+                                code: 'KeyV',
+                                ctrlKey: true,
+                                bubbles: true
+                            }});
+                            inputArea.dispatchEvent(keyupEvent);
+
+                            console.log('Ctrl+V keyboard events dispatched');
+                        }}, 100);
+                    }}, 300);
+
+                    return 'clipboard-events-dispatched';
+                }} catch (e) {{
+                    console.error('Strategy 8 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 8 (Gemini) result: {result}");
+
+        // Give time for clipboard processing
+        await Task.Delay(1000);
+
+        // Also do the traditional clipboard method as backup
+        try
+        {
+            using var ms = new System.IO.MemoryStream(screenshotBytes);
+            var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmapImage.StreamSource = ms;
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+
+            Clipboard.SetImage(bitmapImage);
+            System.Diagnostics.Debug.WriteLine("Strategy 8: Image set to clipboard");
+
+            // Focus WebView and send Ctrl+V
+            webView.Focus();
+            await Task.Delay(200);
+            SendCtrlV();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Strategy 8: Clipboard fallback failed: {ex.Message}");
+        }
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 8 (Gemini) verification: {verifyResult}");
+
+        await Task.Delay(2000);
+    }
+
+    #endregion
+
+    #region Strategy 9: Dialog Intercept Method
+
+    private async Task Strategy9_DialogInterceptAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        if (provider != "gemini")
+        {
+            // Fallback to original method for non-Gemini
+            await UploadScreenshotOriginalAsync(System.Convert.FromBase64String(base64Image));
+            return;
+        }
+
+        var script = $@"
+            (function() {{
+                console.log('Strategy 9: Starting dialog intercept method for Gemini');
+
+                try {{
+                    // Step 1: Create a custom file input that we control
+                    const customFileInput = document.createElement('input');
+                    customFileInput.type = 'file';
+                    customFileInput.accept = 'image/*';
+                    customFileInput.style.display = 'none';
+                    document.body.appendChild(customFileInput);
+
+                    console.log('Custom file input created and added to DOM');
+
+                    // Convert base64 to File
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    // Step 2: Set up event listeners before triggering the dialog
+                    customFileInput.addEventListener('change', function(e) {{
+                        console.log('Custom file input change event triggered');
+
+                        // Now try to find Gemini's actual file input and transfer the file
+                        const geminiFileInputs = Array.from(document.querySelectorAll('input[type=""file""]'))
+                            .filter(input => input !== customFileInput);
+
+                        console.log('Found', geminiFileInputs.length, 'other file inputs');
+
+                        if (geminiFileInputs.length > 0) {{
+                            // Try each Gemini file input
+                            for (const geminiInput of geminiFileInputs) {{
+                                try {{
+                                    console.log('Trying to set file on Gemini input:', geminiInput);
+                                    geminiInput.files = e.target.files;
+                                    geminiInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    geminiInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    console.log('File transferred to Gemini input');
+                                }} catch (error) {{
+                                    console.log('Failed to transfer to Gemini input:', error.message);
+                                }}
+                            }}
+                        }}
+
+                        // Clean up
+                        document.body.removeChild(customFileInput);
+                    }});
+
+                    // Step 3: Trigger the file dialog
+                    customFileInput.click();
+                    console.log('Custom file input clicked to trigger dialog');
+
+                    return 'dialog-triggered';
+                }} catch (e) {{
+                    console.error('Strategy 9 error:', e);
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 9 (Gemini) result: {result}");
+
+        // Verify upload success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 9 (Gemini) verification: {verifyResult}");
+
+        await Task.Delay(3000);
+    }
+
+    #endregion
+
+    #region Strategy 10: Multi-Method Gemini
+
+    private async Task Strategy10_MultiMethodGeminiAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, byte[] screenshotBytes, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        if (provider != "gemini")
+        {
+            // Fallback to hybrid method for non-Gemini
+            await Strategy5_HybridFallbackAsync(webView, screenshotBytes, base64Image);
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine("Strategy 10: Starting multi-method Gemini approach");
+
+        // Method 1: Try button-triggered upload first
+        System.Diagnostics.Debug.WriteLine("Strategy 10: Attempting button-triggered upload...");
+        var buttonResult = await webView.CoreWebView2.ExecuteScriptAsync($@"
+            (function() {{
+                try {{
+                    const uploadSelectors = [
+                        'button[aria-label*=""upload""]',
+                        'button[aria-label*=""attach""]',
+                        'button[data-testid*=""upload""]',
+                        'button svg path[d*=""clip""]'
+                    ];
+
+                    for (const selector of uploadSelectors) {{
+                        const button = document.querySelector(selector);
+                        if (button && button.offsetParent !== null) {{
+                            button.click();
+                            console.log('Strategy 10: Upload button clicked');
+                            return 'button-clicked';
+                        }}
+                    }}
+                    return 'no-button';
+                }} catch (e) {{
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ");
+
+        if (buttonResult.Contains("button-clicked"))
+        {
+            await Task.Delay(1000);
+
+            // Set file on any newly appeared file inputs
+            var fileSetResult = await webView.CoreWebView2.ExecuteScriptAsync($@"
+                (function() {{
+                    try {{
+                        const base64Data = '{base64Image}';
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {{
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }}
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                        const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                        const fileInputs = Array.from(document.querySelectorAll('input[type=""file""]'));
+                        for (const input of fileInputs) {{
+                            if (input.offsetParent !== null) {{
+                                input.files = new DataTransfer().files;
+                                input.files = [file];
+                                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                console.log('Strategy 10: File set on input after button click');
+                                return 'file-set';
+                            }}
+                        }}
+                        return 'no-visible-input';
+                    }} catch (e) {{
+                        return 'error: ' + e.message;
+                    }}
+                }})();
+            ");
+            System.Diagnostics.Debug.WriteLine($"Strategy 10: File set result: {fileSetResult}");
+        }
+
+        await Task.Delay(1500);
+
+        // Method 2: Try drag and drop with enhanced targeting
+        System.Diagnostics.Debug.WriteLine("Strategy 10: Attempting enhanced drag & drop...");
+        var dragResult = await webView.CoreWebView2.ExecuteScriptAsync($@"
+            (function() {{
+                try {{
+                    const base64Data = '{base64Image}';
+                    const byteCharacters = atob(base64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {{
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }}
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                    const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                    // Try multiple drop targets
+                    const dropTargets = [
+                        '.ql-editor',
+                        'div[contenteditable=""true""]',
+                        '.text-input-field',
+                        '.input-area',
+                        '.message-input'
+                    ];
+
+                    for (const selector of dropTargets) {{
+                        const target = document.querySelector(selector);
+                        if (target && target.offsetParent !== null) {{
+                            console.log('Strategy 10: Using drop target:', selector);
+
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+
+                            target.dispatchEvent(new DragEvent('dragenter', {{ bubbles: true, dataTransfer: dataTransfer }}));
+                            setTimeout(() => {{
+                                target.dispatchEvent(new DragEvent('drop', {{ bubbles: true, dataTransfer: dataTransfer }}));
+                                console.log('Strategy 10: Drag & drop completed');
+                            }}, 100);
+
+                            return 'drag-dropped';
+                        }}
+                    }}
+                    return 'no-drop-target';
+                }} catch (e) {{
+                    return 'error: ' + e.message;
+                }}
+            }})();
+        ");
+        System.Diagnostics.Debug.WriteLine($"Strategy 10: Drag result: {dragResult}");
+
+        await Task.Delay(1500);
+
+        // Method 3: Enhanced clipboard method
+        System.Diagnostics.Debug.WriteLine("Strategy 10: Attempting enhanced clipboard...");
+        try
+        {
+            using var ms = new System.IO.MemoryStream(screenshotBytes);
+            var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmapImage.StreamSource = ms;
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+
+            Clipboard.SetImage(bitmapImage);
+
+            var clipboardResult = await webView.CoreWebView2.ExecuteScriptAsync(@"
+                (function() {
+                    try {
+                        const inputArea = document.querySelector('.ql-editor') ||
+                                        document.querySelector('div[contenteditable=""true""]') ||
+                                        document.querySelector('.text-input-field');
+
+                        if (inputArea) {
+                            inputArea.focus();
+                            inputArea.click();
+
+                            setTimeout(() => {
+                                // Simulate Ctrl+V
+                                const keydown = new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true });
+                                const keyup = new KeyboardEvent('keyup', { key: 'v', ctrlKey: true, bubbles: true });
+                                inputArea.dispatchEvent(keydown);
+                                inputArea.dispatchEvent(keyup);
+                                console.log('Strategy 10: Ctrl+V simulated');
+                            }, 200);
+
+                            return 'clipboard-simulated';
+                        }
+                        return 'no-input-area';
+                    } catch (e) {
+                        return 'error: ' + e.message;
+                    }
+                })();
+            ");
+            System.Diagnostics.Debug.WriteLine($"Strategy 10: Clipboard simulation result: {clipboardResult}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Strategy 10: Clipboard method failed: {ex.Message}");
+        }
+
+        // Verify overall success
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 10 (Gemini) verification: {verifyResult}");
+
+        await Task.Delay(2000);
+    }
+
+    #endregion
+
+    #region Strategy 11: Gemini Native Upload
+
+    private async Task Strategy11_GeminiNativeAsync(Microsoft.Web.WebView2.Wpf.WebView2 webView, byte[] screenshotBytes, string base64Image)
+    {
+        var provider = _currentProvider.ToLowerInvariant();
+
+        if (provider != "gemini")
+        {
+            await UploadScreenshotOriginalAsync(screenshotBytes);
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine("Strategy 11: Starting Gemini native upload approach");
+
+        var script = "(function() {";
+        script += "try {";
+        script += "const base64Data = '" + base64Image + "';";
+        script += "const byteCharacters = atob(base64Data);";
+        script += "const byteNumbers = new Array(byteCharacters.length);";
+        script += "for (let i = 0; i < byteCharacters.length; i++) {";
+        script += "byteNumbers[i] = byteCharacters.charCodeAt(i);";
+        script += "}";
+        script += "const byteArray = new Uint8Array(byteNumbers);";
+        script += "const blob = new Blob([byteArray], { type: 'image/png' });";
+        script += "const file = new File([blob], 'screenshot.png', { type: 'image/png' });";
+
+        // First priority: Click the upload icon (mat-icon with upload-icon class)
+        script += "console.log('Strategy 11: Targeting Gemini mat-icon upload elements');";
+        script += "let uploadIcon = document.querySelector('mat-icon.upload-icon') || ";
+        script += "document.querySelector('mat-icon[class*=\"upload\"]') || ";
+        script += "document.querySelector('[class*=\"upload-icon\"]');";
+
+        script += "if (uploadIcon) {";
+        script += "console.log('Found upload icon:', uploadIcon);";
+        script += "uploadIcon.click();";
+
+        // Wait for file dialog and try to inject file
+        script += "setTimeout(() => {";
+        script += "const fileInputs = Array.from(document.querySelectorAll('input[type=\"file\"]'));";
+        script += "console.log('File inputs after icon click:', fileInputs.length);";
+        script += "for (const input of fileInputs) {";
+        script += "if (input.offsetParent !== null) {";
+        script += "try {";
+        script += "const dataTransfer = new DataTransfer();";
+        script += "dataTransfer.items.add(file);";
+        script += "input.files = dataTransfer.files;";
+        script += "input.dispatchEvent(new Event('change', { bubbles: true }));";
+        script += "input.dispatchEvent(new Event('input', { bubbles: true }));";
+        script += "console.log('File injected after icon click');";
+        script += "} catch (e) {";
+        script += "console.log('Failed to inject file:', e.message);";
+        script += "}";
+        script += "}";
+        script += "}";
+        script += "}, 1000);";
+
+        script += "return 'upload-icon-clicked';";
+        script += "}";
+
+        // Fallback: Look for any mat-icon with add_2 text (plus icon)
+        script += "let plusIcon = null;";
+        script += "const icons = document.querySelectorAll('mat-icon');";
+        script += "for (const icon of icons) {";
+        script += "if (icon.textContent === 'add_2' || icon.innerHTML === 'add_2') {";
+        script += "plusIcon = icon;";
+        script += "break;";
+        script += "}";
+        script += "}";
+
+        script += "if (plusIcon) {";
+        script += "console.log('Found plus icon:', plusIcon);";
+        script += "plusIcon.click();";
+
+        script += "setTimeout(() => {";
+        script += "const fileInputs = Array.from(document.querySelectorAll('input[type=\"file\"]'));";
+        script += "for (const input of fileInputs) {";
+        script += "if (input.offsetParent !== null) {";
+        script += "const dataTransfer = new DataTransfer();";
+        script += "dataTransfer.items.add(file);";
+        script += "input.files = dataTransfer.files;";
+        script += "input.dispatchEvent(new Event('change', { bubbles: true }));";
+        script += "}";
+        script += "}";
+        script += "}, 1000);";
+
+        script += "return 'plus-icon-clicked';";
+        script += "}";
+
+        // Last fallback: Direct file input manipulation
+        script += "const fileInputs = Array.from(document.querySelectorAll('input[type=\"file\"]'));";
+        script += "console.log('Direct file inputs found:', fileInputs.length);";
+        script += "for (const input of fileInputs) {";
+        script += "if (input.offsetParent !== null) {";
+        script += "const dataTransfer = new DataTransfer();";
+        script += "dataTransfer.items.add(file);";
+        script += "input.files = dataTransfer.files;";
+        script += "input.dispatchEvent(new Event('change', { bubbles: true }));";
+        script += "return 'direct-file-input-success';";
+        script += "}";
+        script += "}";
+
+        script += "return 'no-upload-elements-found';";
+        script += "} catch (e) {";
+        script += "console.error('Strategy 11 error:', e);";
+        script += "return 'error: ' + e.message;";
+        script += "}";
+        script += "})();";
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"Strategy 11 (Gemini) result: {result}");
+
+        await Task.Delay(3000);
+
+        var verifyScript = GetImageVerificationScript(provider);
+        var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+        System.Diagnostics.Debug.WriteLine($"Strategy 11 (Gemini) verification: {verifyResult}");
+
+        await Task.Delay(2000);
+    }
+
+    #endregion
+}

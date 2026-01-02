@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Injection Verification Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #e6e6e6;
+        }
+        .test-section {
+            background: #2a2a3e;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #3a3a4e;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #357ae8;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: #1e3a1e;
+            border-left: 4px solid #4caf50;
+            border-radius: 4px;
+        }
+        .error {
+            background: #3a1e1e;
+            border-left-color: #f44336;
+        }
+        .info {
+            background: #1e1e3a;
+            border-left-color: #4285f4;
+        }
+        img {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px;
+            border: 2px solid #4caf50;
+            border-radius: 4px;
+        }
+        .test-input {
+            min-height: 100px;
+            padding: 15px;
+            background: #1a1a2e;
+            border: 2px solid #3a3a4e;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .test-input[contenteditable="true"] {
+            background: #0f0f1e;
+        }
+        code {
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔬 Gemini Image Injection Verification Test</h1>
+    <p>This page tests different methods to inject images into Gemini's input field.</p>
+    
+    <div class="test-section">
+        <h2>Test 1: Clipboard Paste Event (Strategy 0 approach)</h2>
+        <div class="test-input" contenteditable="true" id="test1">
+            Click here and test clipboard paste...
+        </div>
+        <button onclick="testClipboardPaste()">Test Clipboard Paste</button>
+        <div id="result1"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: File Input Programmatic (Strategy 12 approach)</h2>
+        <input type="file" id="fileInput" accept="image/*" style="display: none;">
+        <div class="test-input" contenteditable="true" id="test2">
+            Testing file input approach...
+        </div>
+        <button onclick="testFileInput()">Test File Input</button>
+        <div id="result2"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Direct Image Element Injection</h2>
+        <div class="test-input" contenteditable="true" id="test3">
+            Testing direct injection...
+        </div>
+        <button onclick="testDirectInjection()">Test Direct Injection</button>
+        <div id="result3"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 4: Drag & Drop Event</h2>
+        <div class="test-input" contenteditable="true" id="test4" 
+             ondragover="event.preventDefault()" 
+             ondrop="handleDrop(event)">
+            Drag and drop test area...
+        </div>
+        <button onclick="testDragDrop()">Test Drag & Drop</button>
+        <div id="result4"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>📋 Copy Test Image to Clipboard</h2>
+        <p>Use this to copy a test image to your clipboard, then paste it manually in Gemini to verify clipboard works.</p>
+        <canvas id="testCanvas" width="200" height="100" style="border: 1px solid #3a3a4e; background: #1a1a2e; display: block; margin: 10px 0;"></canvas>
+        <button onclick="copyImageToClipboard()">Copy Test Image to Clipboard</button>
+        <div id="resultClipboard"></div>
+    </div>
+    
+    <script>
+        // Create a test image (simple colored rectangle)
+        const canvas = document.getElementById('testCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#4285f4';
+        ctx.fillRect(0, 0, 200, 100);
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('TEST IMAGE', 100, 50);
+        
+        // Convert canvas to base64
+        function getTestImageBase64() {
+            return canvas.toDataURL('image/png').split(',')[1];
+        }
+        
+        // Convert base64 to File
+        function base64ToFile(base64, filename) {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/png' });
+            return new File([blob], filename, { type: 'image/png' });
+        }
+        
+        function showResult(elementId, message, isError = false, isInfo = false) {
+            const resultDiv = document.getElementById(elementId);
+            resultDiv.className = isError ? 'result error' : (isInfo ? 'result info' : 'result');
+            resultDiv.innerHTML = message;
+        }
+        
+        // Test 1: Clipboard Paste Event
+        async function testClipboardPaste() {
+            try {
+                const input = document.getElementById('test1');
+                const base64 = getTestImageBase64();
+                const file = base64ToFile(base64, 'test.png');
+                
+                input.focus();
+                
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                
+                const pasteEvent = new ClipboardEvent('paste', {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData: dataTransfer
+                });
+                
+                input.dispatchEvent(pasteEvent);
+                
+                setTimeout(() => {
+                    const images = input.querySelectorAll('img');
+                    if (images.length > 0) {
+                        showResult('result1', `✅ SUCCESS: ${images.length} image(s) detected!<br>Images: ${Array.from(images).map(img => `<img src="${img.src}" />`).join('')}`);
+                    } else {
+                        showResult('result1', '❌ No images detected. Clipboard paste event may not be supported by this element.', true);
+                    }
+                }, 500);
+            } catch (e) {
+                showResult('result1', `❌ Error: ${e.message}`, true);
+            }
+        }
+        
+        // Test 2: File Input Programmatic
+        async function testFileInput() {
+            try {
+                const fileInput = document.getElementById('fileInput');
+                const base64 = getTestImageBase64();
+                const file = base64ToFile(base64, 'test.png');
+                
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                
+                const changeEvent = new Event('change', { bubbles: true });
+                fileInput.dispatchEvent(changeEvent);
+                
+                if (fileInput.files && fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        document.getElementById('test2').appendChild(img);
+                        showResult('result2', `✅ SUCCESS: File set on input!<br>File: ${file.name}, Size: ${file.size} bytes<br><img src="${img.src}" />`);
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    showResult('result2', '❌ File not set on input', true);
+                }
+            } catch (e) {
+                showResult('result2', `❌ Error: ${e.message}`, true);
+            }
+        }
+        
+        // Test 3: Direct Injection
+        function testDirectInjection() {
+            try {
+                const input = document.getElementById('test3');
+                const dataUrl = canvas.toDataURL('image/png');
+                
+                const img = document.createElement('img');
+                img.src = dataUrl;
+                img.style.maxWidth = '200px';
+                img.style.height = 'auto';
+                input.appendChild(img);
+                
+                input.dispatchEvent(new InputEvent('input', {
+                    bubbles: true,
+                    inputType: 'insertImage'
+                }));
+                
+                showResult('result3', `✅ Image element injected!<br><img src="${dataUrl}" />`);
+            } catch (e) {
+                showResult('result3', `❌ Error: ${e.message}`, true);
+            }
+        }
+        
+        // Test 4: Drag & Drop
+        function testDragDrop() {
+            try {
+                const input = document.getElementById('test4');
+                const base64 = getTestImageBase64();
+                const file = base64ToFile(base64, 'test.png');
+                
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                dataTransfer.effectAllowed = 'all';
+                dataTransfer.dropEffect = 'copy';
+                
+                input.dispatchEvent(new DragEvent('dragenter', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                input.dispatchEvent(new DragEvent('dragover', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                input.dispatchEvent(new DragEvent('drop', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                setTimeout(() => {
+                    const images = input.querySelectorAll('img');
+                    if (images.length > 0) {
+                        showResult('result4', `✅ SUCCESS: ${images.length} image(s) detected!<br>Images: ${Array.from(images).map(img => `<img src="${img.src}" />`).join('')}`);
+                    } else {
+                        showResult('result4', '❌ No images detected. Drag & drop may not be supported.', true);
+                    }
+                }, 500);
+            } catch (e) {
+                showResult('result4', `❌ Error: ${e.message}`, true);
+            }
+        }
+        
+        function handleDrop(event) {
+            event.preventDefault();
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = document.createElement('img');
+                        img.src = e.target.result;
+                        event.target.appendChild(img);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+        
+        // Copy image to clipboard (for manual testing)
+        async function copyImageToClipboard() {
+            try {
+                canvas.toBlob(async (blob) => {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({ 'image/png': blob })
+                        ]);
+                        showResult('resultClipboard', '✅ Image copied to clipboard!<br>Now go to Gemini and press Ctrl+V to paste it.', false, true);
+                    } catch (e) {
+                        showResult('resultClipboard', `❌ Clipboard API error: ${e.message}<br>Note: Clipboard API requires HTTPS or localhost`, true);
+                    }
+                });
+            } catch (e) {
+                showResult('resultClipboard', `❌ Error: ${e.message}`, true);
+            }
+        }
+        
+        // Log all image appearances
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeName === 'IMG') {
+                        console.log('Image detected:', node.src.substring(0, 50) + '...');
+                    }
+                });
+            });
+        });
+        
+        ['test1', 'test2', 'test3', 'test4'].forEach(id => {
+            observer.observe(document.getElementById(id), {
+                childList: true,
+                subtree: true
+            });
+        });
+    </script>
+</body>
+</html>

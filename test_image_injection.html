@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Injection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-area {
+            border: 2px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+            min-height: 200px;
+        }
+        .test-area[contenteditable="true"] {
+            background: #f9f9f9;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #357ae8;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+        }
+        .error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Image Injection Test for Gemini</h1>
+    <p>This page tests different methods of injecting images without file upload.</p>
+    
+    <div class="test-area" contenteditable="true" id="contenteditableArea">
+        <p>Click here and try pasting an image or use the buttons below to test injection methods.</p>
+    </div>
+    
+    <div>
+        <button onclick="testClipboardPaste()">Test Clipboard Paste Event</button>
+        <button onclick="testDragDrop()">Test Drag & Drop</button>
+        <button onclick="testDirectInjection()">Test Direct Image Injection</button>
+        <button onclick="testDataUrlInjection()">Test Data URL Injection</button>
+        <button onclick="clearTest()">Clear</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        // Create a simple test image (1x1 red pixel PNG)
+        const testImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        
+        function showResult(message, isError = false) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = isError ? 'result error' : 'result';
+            resultDiv.innerHTML = '<strong>' + (isError ? 'Error: ' : 'Success: ') + '</strong>' + message;
+        }
+        
+        function createTestImageFile() {
+            const byteCharacters = atob(testImageBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'image/png' });
+            return new File([blob], 'test.png', { type: 'image/png' });
+        }
+        
+        function testClipboardPaste() {
+            try {
+                const input = document.getElementById('contenteditableArea');
+                input.focus();
+                
+                const file = createTestImageFile();
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                
+                const pasteEvent = new ClipboardEvent('paste', {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData: dataTransfer
+                });
+                
+                input.dispatchEvent(pasteEvent);
+                
+                // Check if image was added
+                setTimeout(() => {
+                    const images = input.querySelectorAll('img');
+                    if (images.length > 0) {
+                        showResult('Clipboard paste event dispatched. Images found: ' + images.length);
+                    } else {
+                        showResult('Clipboard paste event dispatched, but no images detected. This method may not work for this element.', true);
+                    }
+                }, 500);
+            } catch (e) {
+                showResult('Error: ' + e.message, true);
+            }
+        }
+        
+        function testDragDrop() {
+            try {
+                const input = document.getElementById('contenteditableArea');
+                input.focus();
+                
+                const file = createTestImageFile();
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                
+                input.dispatchEvent(new DragEvent('dragenter', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                input.dispatchEvent(new DragEvent('dragover', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                input.dispatchEvent(new DragEvent('drop', {
+                    bubbles: true,
+                    cancelable: true,
+                    dataTransfer: dataTransfer
+                }));
+                
+                setTimeout(() => {
+                    const images = input.querySelectorAll('img');
+                    if (images.length > 0) {
+                        showResult('Drag & drop events dispatched. Images found: ' + images.length);
+                    } else {
+                        showResult('Drag & drop events dispatched, but no images detected.', true);
+                    }
+                }, 500);
+            } catch (e) {
+                showResult('Error: ' + e.message, true);
+            }
+        }
+        
+        function testDirectInjection() {
+            try {
+                const input = document.getElementById('contenteditableArea');
+                const dataUrl = 'data:image/png;base64,' + testImageBase64;
+                
+                const img = document.createElement('img');
+                img.src = dataUrl;
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+                input.appendChild(img);
+                
+                input.dispatchEvent(new InputEvent('input', {
+                    bubbles: true,
+                    inputType: 'insertImage'
+                }));
+                
+                showResult('Direct image injection completed. Image element added to content.');
+            } catch (e) {
+                showResult('Error: ' + e.message, true);
+            }
+        }
+        
+        function testDataUrlInjection() {
+            try {
+                const input = document.getElementById('contenteditableArea');
+                const dataUrl = 'data:image/png;base64,' + testImageBase64;
+                
+                // Try setting as innerHTML
+                input.innerHTML += '<img src="' + dataUrl + '" style="max-width: 100%; height: auto;" />';
+                
+                input.dispatchEvent(new InputEvent('input', {
+                    bubbles: true,
+                    inputType: 'insertImage'
+                }));
+                
+                showResult('Data URL injection completed via innerHTML.');
+            } catch (e) {
+                showResult('Error: ' + e.message, true);
+            }
+        }
+        
+        function clearTest() {
+            document.getElementById('contenteditableArea').innerHTML = '<p>Click here and try pasting an image or use the buttons below to test injection methods.</p>';
+            document.getElementById('result').innerHTML = '';
+        }
+        
+        // Log when images are detected
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeName === 'IMG') {
+                        console.log('Image detected:', node.src);
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.getElementById('contenteditableArea'), {
+            childList: true,
+            subtree: true
+        });
+    </script>
+</body>
+</html>
