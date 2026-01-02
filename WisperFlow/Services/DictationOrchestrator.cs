@@ -810,11 +810,24 @@ public class DictationOrchestrator
                     searchQuery = command;
                     _logger.LogInformation("Mode: Search (no context)");
                 }
-                
+
                 _dictationBar.Hide();
-                await BrowserQueryService.OpenQueryAsync(searchQuery, settings.CommandModeSearchEngine);
-                _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine, 
-                    searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
+                
+                // Use embedded browser for ChatGPT and Gemini
+                var selectedProvider = _dictationBar.SelectedProvider;
+                if (selectedProvider is "ChatGPT" or "Gemini")
+                {
+                    await _dictationBar.OpenAndQueryAsync(selectedProvider, searchQuery);
+                    _logger.LogInformation("Opened query in embedded {Provider}: {Query}", selectedProvider,
+                        searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
+                }
+                else
+                {
+                    // Fallback to external browser for other services
+                    await BrowserQueryService.OpenQueryAsync(searchQuery, settings.CommandModeSearchEngine);
+                    _logger.LogInformation("Opened query in {Service}: {Query}", settings.CommandModeSearchEngine,
+                        searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
+                }
             }
         }
         catch (OperationCanceledException)

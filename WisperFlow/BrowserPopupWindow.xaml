@@ -1,0 +1,61 @@
+<Window x:Class="WisperFlow.BrowserPopupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Sign In"
+        Width="500" Height="650"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterScreen">
+    
+    <!-- Main container with rounded corners -->
+    <Border Background="#F8121820" 
+            CornerRadius="12" 
+            BorderBrush="#2a2a3e"
+            BorderThickness="1"
+            ClipToBounds="True">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="20" Opacity="0.5" ShadowDepth="2"/>
+        </Border.Effect>
+        
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="36"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Title bar -->
+            <Border Grid.Row="0" Background="#1a1a2e" CornerRadius="12,12,0,0"
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Grid>
+                    <TextBlock Text="Sign In" 
+                               Foreground="#e6e6e6" 
+                               FontFamily="Segoe UI Semibold" 
+                               FontSize="12"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"/>
+                    
+                    <!-- Close button -->
+                    <Button HorizontalAlignment="Right" 
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            Click="CloseButton_Click">
+                        <TextBlock Text="✕" FontSize="11" Foreground="#8892b0"/>
+                    </Button>
+                </Grid>
+            </Border>
+            
+            <!-- WebView2 for popup content -->
+            <Border Grid.Row="1" CornerRadius="0,0,12,12" ClipToBounds="True">
+                <wv2:WebView2 x:Name="PopupWebView" 
+                              DefaultBackgroundColor="Transparent"/>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

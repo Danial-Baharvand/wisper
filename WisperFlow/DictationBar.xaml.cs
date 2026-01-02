@@ -66,6 +66,40 @@ public partial class DictationBar : Window
     private string _currentInterim = "";
     private bool _transcriptVisible = false;
     
+    // Floating browser state
+    private FloatingBrowserWindow? _floatingBrowser;
+    private string _selectedProvider = "ChatGPT";
+    private bool _providerButtonsVisible = false;
+    private Storyboard? _providerButtonsShowAnimation;
+    private Storyboard? _providerButtonsHideAnimation;
+    
+    /// <summary>
+    /// Gets or sets the currently selected AI provider (ChatGPT or Gemini).
+    /// </summary>
+    public string SelectedProvider
+    {
+        get => _selectedProvider;
+        set
+        {
+            if (_selectedProvider != value)
+            {
+                _selectedProvider = value;
+                UpdateProviderButtonSelection();
+                SelectedProviderChanged?.Invoke(this, value);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Event fired when the selected provider changes.
+    /// </summary>
+    public event EventHandler<string>? SelectedProviderChanged;
+    
+    /// <summary>
+    /// Gets the floating browser window instance.
+    /// </summary>
+    public FloatingBrowserWindow? FloatingBrowser => _floatingBrowser;
+    
     
     // Win32 constants
     private const int GWL_EXSTYLE = -20;
@@ -94,6 +128,8 @@ public partial class DictationBar : Window
         _mainBarContractAnimation = (Storyboard)Resources["MainBarContractAnimation"];
         _warningFadeInAnimation = (Storyboard)Resources["WarningFadeInAnimation"];
         _warningFadeOutAnimation = (Storyboard)Resources["WarningFadeOutAnimation"];
+        _providerButtonsShowAnimation = (Storyboard)Resources["ProviderButtonsShowAnimation"];
+        _providerButtonsHideAnimation = (Storyboard)Resources["ProviderButtonsHideAnimation"];
         
         // Initialize bars array
         _bars = new[] { Bar1, Bar2, Bar3, Bar4, Bar5, Bar6, Bar7, Bar8, Bar9 };
@@ -309,6 +345,7 @@ public partial class DictationBar : Window
         {
             TransitionToState(BarState.Hovered);
         }
+        ShowProviderButtons();
     }
     
     private void MainBar_MouseLeave(object sender, MouseEventArgs e)
@@ -317,6 +354,205 @@ public partial class DictationBar : Window
         {
             TransitionToState(BarState.Idle);
         }
+        // Keep provider buttons visible if browser is open or mouse is over them
+        if (_floatingBrowser?.IsVisible != true && !IsMouseOverProviderButtons())
+        {
+            HideProviderButtons();
+        }
+    }
+    
+    private bool IsMouseOverProviderButtons()
+    {
+        var mousePos = Mouse.GetPosition(ProviderButtonsPanel);
+        return mousePos.X >= 0 && mousePos.X <= ProviderButtonsPanel.ActualWidth &&
+               mousePos.Y >= 0 && mousePos.Y <= ProviderButtonsPanel.ActualHeight;
+    }
+    
+    #endregion
+    
+    #region Provider Buttons and Floating Browser
+    
+    /// <summary>
+    /// Shows the AI provider selection buttons with animation.
+    /// </summary>
+    public void ShowProviderButtons()
+    {
+        if (_providerButtonsVisible) return;
+        _providerButtonsVisible = true;
+        
+        ProviderButtonsPanel.Visibility = Visibility.Visible;
+        _providerButtonsShowAnimation?.Begin();
+        UpdateProviderButtonSelection();
+    }
+    
+    /// <summary>
+    /// Hides the AI provider selection buttons with animation.
+    /// </summary>
+    public void HideProviderButtons()
+    {
+        if (!_providerButtonsVisible) return;
+        if (_floatingBrowser?.IsVisible == true) return; // Keep visible if browser is open
+        
+        _providerButtonsVisible = false;
+        _providerButtonsHideAnimation?.Begin();
+    }
+    
+    /// <summary>
+    /// Updates the visual selection state of provider buttons.
+    /// </summary>
+    private void UpdateProviderButtonSelection()
+    {
+        // ChatGPT button - filled when selected
+        if (_selectedProvider == "ChatGPT")
+        {
+            ChatGPTIndicator.Fill = new SolidColorBrush(Color.FromRgb(16, 163, 127));
+            GeminiIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 66, 133, 244)); // 0.2 opacity
+        }
+        else
+        {
+            ChatGPTIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 16, 163, 127)); // 0.2 opacity
+            GeminiIndicator.Fill = new SolidColorBrush(Color.FromRgb(66, 133, 244));
+        }
+    }
+    
+    /// <summary>
+    /// ChatGPT button click handler.
+    /// </summary>
+    private async void ChatGPTButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        await ToggleProvider("ChatGPT");
+    }
+    
+    /// <summary>
+    /// Gemini button click handler.
+    /// </summary>
+    private async void GeminiButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        await ToggleProvider("Gemini");
+    }
+    
+    /// <summary>
+    /// Toggles the floating browser for the specified provider.
+    /// If already open with same provider, closes it. Otherwise opens/switches.
+    /// </summary>
+    public async Task ToggleProvider(string provider)
+    {
+        // If clicking the already-selected provider and browser is open, close it
+        if (_selectedProvider == provider && _floatingBrowser?.IsVisible == true)
+        {
+            await CloseFloatingBrowserAsync();
+            return;
+        }
+        
+        // Update selection
+        SelectedProvider = provider;
+        
+        // Open or switch browser
+        await OpenFloatingBrowserAsync(provider);
+    }
+    
+    /// <summary>
+    /// Opens the floating browser for the specified provider.
+    /// </summary>
+    public async Task OpenFloatingBrowserAsync(string provider)
+    {
+        // Create browser window if it doesn't exist
+        if (_floatingBrowser == null)
+        {
+            _floatingBrowser = new FloatingBrowserWindow();
+            _floatingBrowser.BrowserClosing += OnBrowserClosing;
+            await _floatingBrowser.InitializeAsync(provider);
+        }
+        else if (_floatingBrowser.CurrentProvider != provider)
+        {
+            // Instant switch - just toggle visibility between cached WebViews
+            await _floatingBrowser.SwitchProviderAsync(provider);
+        }
+        
+        // Show if: not visible, OR in pre-init mode (window is off-screen), OR position is off-screen
+        var needsShow = !_floatingBrowser.IsVisible || _floatingBrowser.IsPreInitializing || _floatingBrowser.Left < -1000;
+        if (needsShow)
+        {
+            _floatingBrowser.ShowWithAnimation();
+        }
+        
+        SelectedProvider = provider;
+    }
+    
+    /// <summary>
+    /// Opens the floating browser and submits a query.
+    /// </summary>
+    public async Task OpenAndQueryAsync(string provider, string query)
+    {
+        await OpenFloatingBrowserAsync(provider);
+        
+        if (_floatingBrowser != null)
+        {
+            await _floatingBrowser.NavigateAndQueryAsync(query);
+        }
+    }
+    
+    /// <summary>
+    /// Closes the floating browser with animation.
+    /// </summary>
+    public async Task CloseFloatingBrowserAsync()
+    {
+        if (_floatingBrowser != null)
+        {
+            await _floatingBrowser.HideWithAnimationAsync();
+        }
+    }
+    
+    /// <summary>
+    /// Pre-initializes all AI provider browsers in the background on app startup.
+    /// Shows the window off-screen with zero opacity to trigger full rendering.
+    /// This ensures instant response when the user first opens any provider.
+    /// </summary>
+    public async Task PreInitializeBrowsersAsync()
+    {
+        if (_floatingBrowser != null) return; // Already initialized
+        
+        _floatingBrowser = new FloatingBrowserWindow();
+        _floatingBrowser.BrowserClosing += OnBrowserClosing;
+        
+        // Enable pre-init mode to prevent OnLoaded from repositioning
+        _floatingBrowser.SetPreInitMode(true);
+        
+        // Position off-screen and make invisible to trigger rendering without user seeing it
+        _floatingBrowser.Left = -9999;
+        _floatingBrowser.Top = -9999;
+        _floatingBrowser.Opacity = 0;
+        _floatingBrowser.Show(); // Must show for WebView2 to render
+        
+        // Initialize both providers (this navigates and waits for page load)
+        await _floatingBrowser.InitializeAsync(_selectedProvider);
+        
+        // Additional wait for JavaScript frameworks to fully initialize
+        await Task.Delay(3000);
+        
+        // Hide the window and disable pre-init mode
+        _floatingBrowser.Hide();
+        _floatingBrowser.SetPreInitMode(false);
+        _floatingBrowser.Opacity = 1; // Restore opacity for later
+    }
+    
+    private void OnBrowserClosing(object? sender, EventArgs e)
+    {
+        // Optionally hide provider buttons when browser closes
+        if (_currentState == BarState.Idle && !IsMouseOverProviderButtons())
+        {
+            HideProviderButtons();
+        }
+    }
+    
+    /// <summary>
+    /// Sets the selected provider without opening the browser.
+    /// Used when loading from settings.
+    /// </summary>
+    public void SetSelectedProvider(string provider)
+    {
+        _selectedProvider = provider;
+        UpdateProviderButtonSelection();
     }
     
     #endregion

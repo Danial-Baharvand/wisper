@@ -36,6 +36,8 @@
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.25.0" />
     <!-- English dictionary for filtering common words -->
     <PackageReference Include="WeCantSpell.Hunspell" Version="5.2.0" />
+    <!-- Embedded browser for AI chat providers -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
   </ItemGroup>
 
   <!-- UI Automation for detecting text input focus -->

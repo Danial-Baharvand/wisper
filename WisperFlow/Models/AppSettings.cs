@@ -96,6 +96,11 @@ public class AppSettings
     public string CommandModeSearchEngine { get; set; } = "ChatGPT";
 
     /// <summary>
+    /// The selected AI provider for the embedded browser (ChatGPT or Gemini).
+    /// </summary>
+    public string SelectedAIProvider { get; set; } = "ChatGPT";
+
+    /// <summary>
     /// Selected LLM model for command mode (separate from polish model).
     /// This model handles transform and generate commands.
     /// </summary>

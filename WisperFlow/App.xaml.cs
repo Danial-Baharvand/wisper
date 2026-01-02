@@ -183,8 +183,22 @@ public partial class App : Application
         _orchestrator.ApplySettings(settings);
         _hotkeyManager.RegisterHotkey(settings.HotkeyModifiers, settings.HotkeyKey);
         
+        // Apply AI provider selection to DictationBar
+        _dictationBar.SetSelectedProvider(settings.SelectedAIProvider);
+        
+        // Save provider changes back to settings
+        _dictationBar.SelectedProviderChanged += (s, provider) =>
+        {
+            var currentSettings = _settingsManager.CurrentSettings;
+            currentSettings.SelectedAIProvider = provider;
+            _settingsManager.SaveSettings(currentSettings);
+        };
+        
         // Initialize services in background
         _ = _orchestrator.InitializeServicesAsync();
+        
+        // Pre-initialize AI provider browsers in background for instant first-use
+        _ = _dictationBar.PreInitializeBrowsersAsync();
     }
 
     protected override void OnExit(ExitEventArgs e)
