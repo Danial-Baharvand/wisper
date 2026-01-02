@@ -8,9 +8,10 @@ using WisperFlow.Services.CodeContext;
 namespace WisperFlow.Services.Polish;
 
 /// <summary>
-/// Polish service using OpenAI's GPT models.
+/// Polish service using Groq Cloud API.
+/// Groq offers ultra-fast inference via their LPU (Language Processing Unit) with OpenAI-compatible API.
 /// </summary>
-public class OpenAIPolishService : IPolishService
+public class GroqPolishService : IPolishService
 {
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
@@ -19,74 +20,7 @@ public class OpenAIPolishService : IPolishService
     private readonly string? _customTypingPrompt;
     private readonly string? _customNotesPrompt;
     private readonly CodeContextService? _codeContextService;
-    private const string Endpoint = "https://api.openai.com/v1/chat/completions";
-
-    /// <summary>
-    /// Default typing mode prompt - used when no custom prompt is set.
-    /// </summary>
-    public const string DefaultTypingPrompt = @"You are a speech-to-text post-processor. Clean up the transcription intelligently.
-
-SELF-CORRECTIONS (remove the incorrect part, keep the correction):
-- ""I went to the oh actually I drove to the store"" → ""I drove to the store""
-- ""The meeting is on Monday no wait Tuesday"" → ""The meeting is on Tuesday""
-- ""She said hello sorry she said goodbye"" → ""She said goodbye""
-- ""discard last sentence"" / ""delete that"" / ""scratch that"" → remove the preceding sentence
-- ""let's go back to the beginning"" / ""start over"" → keep only what follows
-
-INLINE EDITS (apply the requested change):
-- ""change the word good to great"" → replace 'good' with 'great' in the text
-- ""replace happy with excited"" → replace 'happy' with 'excited' in the text
-
-STUTTERING & DUPLICATES:
-- ""I I I went to the store"" → ""I went to the store""
-- ""the the meeting"" → ""the meeting""
-
-FORMATTING COMMANDS:
-- ""new line"" / ""next line"" → actual newline
-- ""new paragraph"" → double newline
-- ""open parenthesis"" / ""open paren"" → (
-- ""close parenthesis"" / ""close paren"" → )
-- ""open bracket"" → [, ""close bracket"" → ]
-- ""open quote"" / ""quote"" → "", ""close quote"" / ""end quote"" / ""unquote"" → ""
-- ""comma"" → ,  ""period"" / ""full stop"" → .  ""question mark"" → ?
-- ""colon"" → :  ""semicolon"" → ;  ""dash"" / ""hyphen"" → -
-- ""exclamation point"" / ""exclamation mark"" → !
-
-ALSO:
-- Fix punctuation and capitalization
-- Remove filler words (um, uh, like, you know, basically, so, I mean)
-- Fix homophones (there/their/they're, your/you're)
-- Fix phonetic mistranscriptions (""my crow soft"" → ""Microsoft"")
-
-Return ONLY the cleaned text, nothing else.";
-
-    /// <summary>
-    /// Default notes mode prompt - used when no custom prompt is set.
-    /// </summary>
-    public const string DefaultNotesPrompt = @"You are a speech-to-text post-processor for note-taking. Format the transcription as clean notes.
-
-SELF-CORRECTIONS (remove the incorrect part, keep the correction):
-- ""The price is fifty oh actually sixty dollars"" → ""The price is sixty dollars""
-- ""We need three no make that four items"" → ""We need four items""
-- ""discard last sentence"" / ""delete that"" → remove the preceding sentence
-
-INLINE EDITS:
-- ""change X to Y"" / ""replace X with Y"" → apply the substitution
-
-FORMATTING COMMANDS:
-- ""bullet point"" + text → • text
-- ""numbered list"" → 1. 2. 3. format
-- ""heading"" + text → **text**
-- ""new line"" → newline, ""new paragraph"" → double newline
-- Parentheses, brackets, quotes → actual symbols
-
-CLEANUP:
-- Remove ALL filler words and hesitations
-- Remove stuttering and repeated words
-- Fix grammar and homophones
-- Fix phonetic mistranscriptions
-
-Return ONLY the formatted text, nothing else.";
+    private const string Endpoint = "https://api.groq.com/openai/v1/chat/completions";
 
     public string ModelId => _modelId;
     public bool IsReady => !string.IsNullOrEmpty(GetApiKey());
@@ -94,14 +28,18 @@ Return ONLY the formatted text, nothing else.";
     /// <summary>
     /// Gets the effective typing prompt (custom or default).
     /// </summary>
-    public string TypingPrompt => string.IsNullOrWhiteSpace(_customTypingPrompt) ? DefaultTypingPrompt : _customTypingPrompt;
+    public string TypingPrompt => string.IsNullOrWhiteSpace(_customTypingPrompt) 
+        ? OpenAIPolishService.DefaultTypingPrompt 
+        : _customTypingPrompt;
     
     /// <summary>
     /// Gets the effective notes prompt (custom or default).
     /// </summary>
-    public string NotesPrompt => string.IsNullOrWhiteSpace(_customNotesPrompt) ? DefaultNotesPrompt : _customNotesPrompt;
+    public string NotesPrompt => string.IsNullOrWhiteSpace(_customNotesPrompt) 
+        ? OpenAIPolishService.DefaultNotesPrompt 
+        : _customNotesPrompt;
 
-    public OpenAIPolishService(ILogger logger, string modelId = "openai-gpt4o-mini", string? customTypingPrompt = null, string? customNotesPrompt = null, CodeContextService? codeContextService = null)
+    public GroqPolishService(ILogger logger, string modelId, string? customTypingPrompt = null, string? customNotesPrompt = null, CodeContextService? codeContextService = null)
     {
         _logger = logger;
         _modelId = modelId;
@@ -114,40 +52,10 @@ Return ONLY the formatted text, nothing else.";
     
     private static string GetApiModelName(string modelId) => modelId switch
     {
-        "openai-gpt5-nano" => "gpt-5-nano",
-        "openai-gpt5-mini" => "gpt-5-mini",
-        "openai-gpt4o-mini" => "gpt-4o-mini",
-        _ => "gpt-4o-mini"
+        "groq-llama-4-scout" => "meta-llama/llama-4-scout-17b-16e-instruct",
+        "groq-llama-4-maverick" => "meta-llama/llama-4-maverick-17b-128e-instruct",
+        _ => "meta-llama/llama-4-scout-17b-16e-instruct"  // Default to Scout
     };
-    
-    private bool IsGpt5Model => _apiModelName.StartsWith("gpt-5");
-    
-    private Dictionary<string, object> BuildRequestBody(string systemPrompt, string userContent, int maxTokens, double temperature)
-    {
-        var body = new Dictionary<string, object>
-        {
-            ["model"] = _apiModelName,
-            ["messages"] = new[]
-            {
-                new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
-                new Dictionary<string, string> { ["role"] = "user", ["content"] = userContent }
-            }
-        };
-        
-        // GPT-5 models use max_completion_tokens and don't support custom temperature
-        if (IsGpt5Model)
-        {
-            body["max_completion_tokens"] = maxTokens;
-            // GPT-5 only supports temperature=1 (default), so we don't set it
-        }
-        else
-        {
-            body["max_tokens"] = maxTokens;
-            body["temperature"] = temperature;
-        }
-            
-        return body;
-    }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -159,11 +67,11 @@ Return ONLY the formatted text, nothing else.";
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("No API key, returning raw text");
+            _logger.LogWarning("No Groq API key, returning raw text");
             return rawText;
         }
 
-        _logger.LogInformation("Polishing via OpenAI {Model} ({Mode} mode)", _apiModelName, notesMode ? "notes" : "typing");
+        _logger.LogInformation("Polishing via Groq {Model} ({Mode} mode)", _apiModelName, notesMode ? "notes" : "typing");
 
         try
         {
@@ -171,15 +79,20 @@ Return ONLY the formatted text, nothing else.";
             var codeContext = await GetCodeContextAsync();
             var systemPrompt = (notesMode ? NotesPrompt : TypingPrompt) + (codeContext ?? "");
             
-            // Use higher max_tokens when code context is included
+            // Use higher max_tokens when code context is included to prevent truncation
             var maxTokens = codeContext != null ? 1200 : 600;
             
-            var requestBody = BuildRequestBody(
-                systemPrompt,
-                rawText,
-                maxTokens: maxTokens,
-                temperature: 0.1
-            );
+            var requestBody = new Dictionary<string, object>
+            {
+                ["model"] = _apiModelName,
+                ["messages"] = new[]
+                {
+                    new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
+                    new Dictionary<string, string> { ["role"] = "user", ["content"] = rawText }
+                },
+                ["max_tokens"] = maxTokens,
+                ["temperature"] = 0.1
+            };
 
             var json = JsonSerializer.Serialize(requestBody);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -191,13 +104,15 @@ Return ONLY the formatted text, nothing else.";
             
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Polish API failed ({Code}), returning raw text", (int)response.StatusCode);
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Groq polish API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
                 return rawText;
             }
 
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(responseJson);
             
+            // Get the full response and check for finish reason
             var choice = doc.RootElement.GetProperty("choices")[0];
             var finishReason = choice.TryGetProperty("finish_reason", out var fr) ? fr.GetString() : "unknown";
             var result = choice
@@ -206,12 +121,21 @@ Return ONLY the formatted text, nothing else.";
                 .GetString() ?? rawText;
 
             result = result.Trim().Trim('"');
-            _logger.LogInformation("Polish complete: {Len} chars, finish: {Reason}", result.Length, finishReason);
+            _logger.LogInformation("Groq polish complete: {Len} chars, finish: {Reason}", result.Length, finishReason);
+            
+            // Log warning if output seems truncated
+            if (result.Length < rawText.Length && rawText.Length > 50)
+            {
+                _logger.LogWarning("Polish output ({OutputLen}) shorter than input ({InputLen}). First 100 chars: {Preview}", 
+                    result.Length, rawText.Length, 
+                    result.Length > 100 ? result.Substring(0, 100) + "..." : result);
+            }
+            
             return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Polish failed, returning raw text");
+            _logger.LogWarning(ex, "Groq polish failed, returning raw text");
             return rawText;
         }
     }
@@ -251,11 +175,11 @@ Return ONLY the formatted text, nothing else.";
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("No API key for transform");
+            _logger.LogWarning("No Groq API key for transform");
             return originalText;
         }
 
-        _logger.LogInformation("Transforming via OpenAI {Model}: {Command}", _apiModelName, command);
+        _logger.LogInformation("Transforming via Groq {Model}: {Command}", _apiModelName, command);
 
         var systemPrompt = @"You are a text transformation assistant. Transform the provided text according to the user's instruction.
 
@@ -267,12 +191,17 @@ RULES:
 
         try
         {
-            var requestBody = BuildRequestBody(
-                systemPrompt,
-                $"Instruction: {command}\n\nText to transform:\n{originalText}",
-                maxTokens: 1000,
-                temperature: 0.3
-            );
+            var requestBody = new Dictionary<string, object>
+            {
+                ["model"] = _apiModelName,
+                ["messages"] = new[]
+                {
+                    new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
+                    new Dictionary<string, string> { ["role"] = "user", ["content"] = $"Instruction: {command}\n\nText to transform:\n{originalText}" }
+                },
+                ["max_tokens"] = 1000,
+                ["temperature"] = 0.3
+            };
 
             var json = JsonSerializer.Serialize(requestBody);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -285,7 +214,7 @@ RULES:
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Transform API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
+                _logger.LogWarning("Groq transform API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
                 return originalText;
             }
 
@@ -298,12 +227,12 @@ RULES:
                 .GetString() ?? originalText;
 
             result = result.Trim();
-            _logger.LogInformation("Transform complete: {Len} chars", result.Length);
+            _logger.LogInformation("Groq transform complete: {Len} chars", result.Length);
             return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Transform failed");
+            _logger.LogWarning(ex, "Groq transform failed");
             return originalText;
         }
     }
@@ -311,28 +240,62 @@ RULES:
     public async Task<string> GenerateAsync(string instruction, byte[]? imageBytes = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(instruction)) return "";
-        // Note: imageBytes is accepted but not yet used - OpenAI GPT-4 Vision support can be added later
 
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            _logger.LogWarning("No API key for generate");
+            _logger.LogWarning("No Groq API key for generate");
             return "";
         }
 
-        _logger.LogInformation("Generating via OpenAI {Model}: {Instruction}", _apiModelName, instruction);
+        var hasImage = imageBytes != null && imageBytes.Length > 0;
+        _logger.LogInformation("Generating via Groq {Model}: {Instruction}, Image: {HasImage}", 
+            _apiModelName, instruction, hasImage);
 
         var systemPrompt = @"You are a helpful writing assistant. Generate text exactly as the user requests.
 Output only the requested text with no explanations, preamble, or commentary.";
 
         try
         {
-            var requestBody = BuildRequestBody(
-                systemPrompt,
-                instruction,
-                maxTokens: 1500,
-                temperature: 0.7  // More creative for generation
-            );
+            object userMessage;
+            if (hasImage)
+            {
+                // Multimodal format: content is an array of text and image_url objects
+                var base64Image = Convert.ToBase64String(imageBytes!);
+                userMessage = new Dictionary<string, object>
+                {
+                    ["role"] = "user",
+                    ["content"] = new object[]
+                    {
+                        new Dictionary<string, string> { ["type"] = "text", ["text"] = instruction },
+                        new Dictionary<string, object>
+                        {
+                            ["type"] = "image_url",
+                            ["image_url"] = new Dictionary<string, string>
+                            {
+                                ["url"] = $"data:image/png;base64,{base64Image}"
+                            }
+                        }
+                    }
+                };
+            }
+            else
+            {
+                // Text-only format
+                userMessage = new Dictionary<string, string> { ["role"] = "user", ["content"] = instruction };
+            }
+            
+            var requestBody = new Dictionary<string, object>
+            {
+                ["model"] = _apiModelName,
+                ["messages"] = new object[]
+                {
+                    new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
+                    userMessage
+                },
+                ["max_tokens"] = 1500,
+                ["temperature"] = 0.7
+            };
 
             var json = JsonSerializer.Serialize(requestBody);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -341,11 +304,11 @@ Output only the requested text with no explanations, preamble, or commentary.";
             request.Content = content;
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
-            
+
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Generate API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
+                _logger.LogWarning("Groq generate API failed ({Code}): {Error}", (int)response.StatusCode, errorBody);
                 return "";
             }
 
@@ -358,19 +321,18 @@ Output only the requested text with no explanations, preamble, or commentary.";
                 .GetString() ?? "";
 
             result = result.Trim();
-            _logger.LogInformation("Generate complete: {Len} chars", result.Length);
+            _logger.LogInformation("Groq generate complete: {Len} chars", result.Length);
             return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogWarning(ex, "Generate failed");
+            _logger.LogWarning(ex, "Groq generate failed");
             return "";
         }
     }
 
     private static string? GetApiKey() =>
-        Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? CredentialManager.GetApiKey();
+        Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? CredentialManager.GetGroqApiKey();
 
     public void Dispose() => _httpClient.Dispose();
 }
-

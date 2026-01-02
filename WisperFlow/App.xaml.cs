@@ -161,11 +161,12 @@ public partial class App : Application
         _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
         _codeContextService = new CodeContextService(_loggerFactory!.CreateLogger<CodeContextService>());
         _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager, _settingsManager, _codeContextService);
-        
+
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());
         _textInjector = new TextInjector(_loggerFactory!.CreateLogger<TextInjector>());
         _dictationBar = new DictationBar();
+        var screenshotService = new ScreenshotService(_loggerFactory!.CreateLogger<ScreenshotService>());
 
         _orchestrator = new DictationOrchestrator(
             _hotkeyManager,
@@ -175,6 +176,7 @@ public partial class App : Application
             _settingsManager,
             _serviceFactory,
             _codeContextService,
+            screenshotService,
             _loggerFactory!.CreateLogger<DictationOrchestrator>());
 
         _trayIconManager = new TrayIconManager(_settingsManager, _orchestrator,
@@ -185,7 +187,7 @@ public partial class App : Application
         
         // Apply AI provider selection to DictationBar
         _dictationBar.SetSelectedProvider(settings.SelectedAIProvider);
-        
+
         // Save provider changes back to settings
         _dictationBar.SelectedProviderChanged += (s, provider) =>
         {
@@ -194,6 +196,24 @@ public partial class App : Application
             _settingsManager.SaveSettings(currentSettings);
         };
         
+        // Apply screenshot enabled state to DictationBar
+        _dictationBar.SetScreenshotEnabled(settings.ScreenshotEnabled);
+        
+        // Save screenshot enabled changes back to settings
+        _dictationBar.ScreenshotEnabledChanged += (s, enabled) =>
+        {
+            var currentSettings = _settingsManager.CurrentSettings;
+            currentSettings.ScreenshotEnabled = enabled;
+            _settingsManager.SaveSettings(currentSettings);
+        };
+        
+        // Wire up settings button to open settings window
+        _dictationBar.SettingsRequested += (s, e) =>
+        {
+            var settingsWindow = new SettingsWindow(_settingsManager, _orchestrator!, _audioRecorder, _modelManager!);
+            settingsWindow.ShowDialog();
+        };
+
         // Initialize services in background
         _ = _orchestrator.InitializeServicesAsync();
         

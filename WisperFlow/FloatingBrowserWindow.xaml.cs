@@ -272,7 +272,9 @@ public partial class FloatingBrowserWindow : Window
     /// Submits a query to the current provider.
     /// Does NOT navigate away - keeps the current chat session.
     /// </summary>
-    public async Task NavigateAndQueryAsync(string? query = null)
+    /// <param name="query">The query text to submit.</param>
+    /// <param name="screenshotBytes">Optional PNG screenshot bytes to attach.</param>
+    public async Task NavigateAndQueryAsync(string? query = null, byte[]? screenshotBytes = null)
     {
         var webView = ActiveWebView;
         var isInitialized = _currentProvider == "ChatGPT" ? _chatGPTInitialized : _geminiInitialized;
@@ -290,11 +292,100 @@ public partial class FloatingBrowserWindow : Window
             }
         }
         
+        // Upload screenshot if provided
+        if (screenshotBytes != null && screenshotBytes.Length > 0)
+        {
+            await UploadScreenshotAsync(screenshotBytes);
+        }
+        
         // Submit the query
         if (!string.IsNullOrEmpty(query))
         {
             await SubmitQueryAsync(query);
         }
+    }
+    
+    /// <summary>
+    /// Uploads a screenshot to the current AI provider's chat.
+    /// Uses clipboard paste which is the most reliable method for both ChatGPT and Gemini.
+    /// </summary>
+    private async Task UploadScreenshotAsync(byte[] screenshotBytes)
+    {
+        var webView = ActiveWebView;
+        if (webView?.CoreWebView2 == null) return;
+        
+        try
+        {
+            // Create a bitmap from the PNG bytes and put it on the clipboard
+            using var ms = new System.IO.MemoryStream(screenshotBytes);
+            var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmapImage.StreamSource = ms;
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+            
+            // Put the image on the clipboard
+            Clipboard.SetImage(bitmapImage);
+            
+            // Focus the input area first via JavaScript
+            var focusScript = GetFocusInputScript(_currentProvider);
+            await webView.CoreWebView2.ExecuteScriptAsync(focusScript);
+            await Task.Delay(200);
+            
+            // Focus the WebView control itself
+            webView.Focus();
+            await Task.Delay(100);
+            
+            // Simulate Ctrl+V paste using the same method as text paste
+            SendCtrlV();
+            
+            // Wait for the image to upload/process
+            await Task.Delay(1500);
+        }
+        catch
+        {
+            // Screenshot upload failed - continue with query anyway
+        }
+    }
+    
+    /// <summary>
+    /// Gets JavaScript to focus the input area for the specified provider.
+    /// </summary>
+    private static string GetFocusInputScript(string provider)
+    {
+        return provider.ToLowerInvariant() switch
+        {
+            "chatgpt" => @"
+                (function() {
+                    // Focus the ChatGPT textarea
+                    const textarea = document.querySelector('#prompt-textarea');
+                    if (textarea) {
+                        textarea.focus();
+                        return true;
+                    }
+                    // Try contenteditable div
+                    const div = document.querySelector('div[contenteditable=""true""]');
+                    if (div) {
+                        div.focus();
+                        return true;
+                    }
+                    return false;
+                })();",
+            
+            "gemini" => @"
+                (function() {
+                    // Focus Gemini's rich text editor
+                    const editor = document.querySelector('.ql-editor, div[contenteditable=""true""], .text-input-field textarea');
+                    if (editor) {
+                        editor.focus();
+                        return true;
+                    }
+                    return false;
+                })();",
+            
+            _ => "false"
+        };
     }
 
     /// <summary>

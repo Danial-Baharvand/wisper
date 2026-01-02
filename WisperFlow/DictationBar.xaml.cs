@@ -73,6 +73,14 @@ public partial class DictationBar : Window
     private Storyboard? _providerButtonsShowAnimation;
     private Storyboard? _providerButtonsHideAnimation;
     
+    // Left side buttons (settings, screenshot)
+    private bool _leftButtonsVisible = false;
+    private Storyboard? _leftButtonsShowAnimation;
+    private Storyboard? _leftButtonsHideAnimation;
+    
+    // Screenshot context state
+    private bool _screenshotEnabled = false;
+    
     /// <summary>
     /// Gets or sets the currently selected AI provider (ChatGPT or Gemini).
     /// </summary>
@@ -94,6 +102,33 @@ public partial class DictationBar : Window
     /// Event fired when the selected provider changes.
     /// </summary>
     public event EventHandler<string>? SelectedProviderChanged;
+    
+    /// <summary>
+    /// Gets or sets whether screenshot context is enabled.
+    /// </summary>
+    public bool ScreenshotEnabled
+    {
+        get => _screenshotEnabled;
+        set
+        {
+            if (_screenshotEnabled != value)
+            {
+                _screenshotEnabled = value;
+                UpdateScreenshotButtonState();
+                ScreenshotEnabledChanged?.Invoke(this, value);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Event fired when screenshot context enabled state changes.
+    /// </summary>
+    public event EventHandler<bool>? ScreenshotEnabledChanged;
+    
+    /// <summary>
+    /// Event fired when settings button is clicked.
+    /// </summary>
+    public event EventHandler? SettingsRequested;
     
     /// <summary>
     /// Gets the floating browser window instance.
@@ -130,6 +165,8 @@ public partial class DictationBar : Window
         _warningFadeOutAnimation = (Storyboard)Resources["WarningFadeOutAnimation"];
         _providerButtonsShowAnimation = (Storyboard)Resources["ProviderButtonsShowAnimation"];
         _providerButtonsHideAnimation = (Storyboard)Resources["ProviderButtonsHideAnimation"];
+        _leftButtonsShowAnimation = (Storyboard)Resources["LeftButtonsShowAnimation"];
+        _leftButtonsHideAnimation = (Storyboard)Resources["LeftButtonsHideAnimation"];
         
         // Initialize bars array
         _bars = new[] { Bar1, Bar2, Bar3, Bar4, Bar5, Bar6, Bar7, Bar8, Bar9 };
@@ -346,6 +383,7 @@ public partial class DictationBar : Window
             TransitionToState(BarState.Hovered);
         }
         ShowProviderButtons();
+        ShowLeftButtons();
     }
     
     private void MainBar_MouseLeave(object sender, MouseEventArgs e)
@@ -359,6 +397,11 @@ public partial class DictationBar : Window
         {
             HideProviderButtons();
         }
+        // Keep left buttons visible if mouse is over them
+        if (!IsMouseOverLeftButtons())
+        {
+            HideLeftButtons();
+        }
     }
     
     private bool IsMouseOverProviderButtons()
@@ -366,6 +409,13 @@ public partial class DictationBar : Window
         var mousePos = Mouse.GetPosition(ProviderButtonsPanel);
         return mousePos.X >= 0 && mousePos.X <= ProviderButtonsPanel.ActualWidth &&
                mousePos.Y >= 0 && mousePos.Y <= ProviderButtonsPanel.ActualHeight;
+    }
+    
+    private bool IsMouseOverLeftButtons()
+    {
+        var mousePos = Mouse.GetPosition(LeftButtonsPanel);
+        return mousePos.X >= 0 && mousePos.X <= LeftButtonsPanel.ActualWidth &&
+               mousePos.Y >= 0 && mousePos.Y <= LeftButtonsPanel.ActualHeight;
     }
     
     #endregion
@@ -482,13 +532,16 @@ public partial class DictationBar : Window
     /// <summary>
     /// Opens the floating browser and submits a query.
     /// </summary>
-    public async Task OpenAndQueryAsync(string provider, string query)
+    /// <param name="provider">The AI provider (ChatGPT or Gemini).</param>
+    /// <param name="query">The query text to submit.</param>
+    /// <param name="screenshotBytes">Optional screenshot to attach to the message.</param>
+    public async Task OpenAndQueryAsync(string provider, string query, byte[]? screenshotBytes = null)
     {
         await OpenFloatingBrowserAsync(provider);
         
         if (_floatingBrowser != null)
         {
-            await _floatingBrowser.NavigateAndQueryAsync(query);
+            await _floatingBrowser.NavigateAndQueryAsync(query, screenshotBytes);
         }
     }
     
@@ -553,6 +606,83 @@ public partial class DictationBar : Window
     {
         _selectedProvider = provider;
         UpdateProviderButtonSelection();
+    }
+    
+    #endregion
+    
+    #region Left Side Buttons (Settings, Screenshot)
+    
+    /// <summary>
+    /// Shows the left side buttons (Settings, Screenshot) with animation.
+    /// </summary>
+    public void ShowLeftButtons()
+    {
+        if (_leftButtonsVisible) return;
+        _leftButtonsVisible = true;
+        
+        LeftButtonsPanel.Visibility = Visibility.Visible;
+        _leftButtonsShowAnimation?.Begin();
+    }
+    
+    /// <summary>
+    /// Hides the left side buttons with animation.
+    /// </summary>
+    public void HideLeftButtons()
+    {
+        if (!_leftButtonsVisible) return;
+        
+        _leftButtonsVisible = false;
+        _leftButtonsHideAnimation?.Begin();
+    }
+    
+    /// <summary>
+    /// Settings button click handler.
+    /// </summary>
+    private void SettingsButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        SettingsRequested?.Invoke(this, EventArgs.Empty);
+    }
+    
+    /// <summary>
+    /// Screenshot button click handler - toggles screenshot context.
+    /// </summary>
+    private void ScreenshotButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        ScreenshotEnabled = !ScreenshotEnabled;
+    }
+    
+    /// <summary>
+    /// Updates the visual state of the screenshot button.
+    /// </summary>
+    private void UpdateScreenshotButtonState()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_screenshotEnabled)
+            {
+                // Enabled - pink/active color
+                ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(255, 107, 157)); // #ff6b9d
+                ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(100, 255, 107, 157));
+                ScreenshotButton.ToolTip = "Screenshot Context (enabled)";
+            }
+            else
+            {
+                // Disabled - gray
+                ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(107, 114, 128)); // #6b7280
+                ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 107, 114, 128));
+                ScreenshotButton.ToolTip = "Screenshot Context (disabled)";
+            }
+        });
+    }
+    
+    /// <summary>
+    /// Sets the screenshot enabled state without triggering the event.
+    /// Used when loading from settings.
+    /// </summary>
+    public void SetScreenshotEnabled(bool enabled)
+    {
+        _screenshotEnabled = enabled;
+        UpdateScreenshotButtonState();
     }
     
     #endregion

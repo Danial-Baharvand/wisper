@@ -241,9 +241,10 @@ RULES:
         }
     }
 
-    public async Task<string> GenerateAsync(string instruction, CancellationToken cancellationToken = default)
+    public async Task<string> GenerateAsync(string instruction, byte[]? imageBytes = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(instruction)) return "";
+        // Note: imageBytes is accepted but not used - Cerebras does not support multimodal
 
         var apiKey = GetApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))

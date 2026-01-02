@@ -290,6 +290,19 @@ public partial class SettingsWindow : Window
             CerebrasApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
             CerebrasApiKeyStatusText.Text = "No API key found (required for Cerebras models)";
         }
+        
+        // Groq API Key status
+        var hasGroqKey = CredentialManager.HasGroqApiKey();
+        if (hasGroqKey)
+        {
+            GroqApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(0, 212, 170));
+            GroqApiKeyStatusText.Text = "API key configured";
+        }
+        else
+        {
+            GroqApiKeyStatusDot.Fill = new SolidColorBrush(Color.FromRgb(255, 71, 87));
+            GroqApiKeyStatusText.Text = "No API key found (required for Groq models)";
+        }
     }
 
     private void PopulateModels()
@@ -323,6 +336,14 @@ public partial class SettingsWindow : Window
                 displayName = hasKey ? model.Name : $"{model.Name} (needs API key)";
                 isEnabled = hasKey;
                 tooltip = hasKey ? null : "Configure Deepgram API key in API Keys section";
+            }
+            else if (model.Source == ModelSource.Groq)
+            {
+                // Groq Whisper models - check API key
+                var hasKey = CredentialManager.HasGroqApiKey();
+                displayName = hasKey ? model.Name : $"{model.Name} (needs API key)";
+                isEnabled = hasKey;
+                tooltip = hasKey ? null : "Configure Groq API key in API Keys section";
             }
             else if (installed)
             {
@@ -434,6 +455,10 @@ public partial class SettingsWindow : Window
             {
                 status = CredentialManager.HasCerebrasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
             }
+            else if (model?.Source == ModelSource.Groq)
+            {
+                status = CredentialManager.HasGroqApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
             else if (model?.Source == ModelSource.OpenAI)
             {
                 status = CredentialManager.HasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
@@ -494,7 +519,23 @@ public partial class SettingsWindow : Window
         if (CodeDictationModelComboBox.SelectedItem is ComboBoxItem item && item.Tag is string id)
         {
             var model = ModelCatalog.GetById(id);
-            var status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            string status;
+            if (model?.Source == ModelSource.Cerebras)
+            {
+                status = CredentialManager.HasCerebrasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
+            else if (model?.Source == ModelSource.Groq)
+            {
+                status = CredentialManager.HasGroqApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
+            else if (model?.Source == ModelSource.OpenAI)
+            {
+                status = CredentialManager.HasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
+            }
+            else
+            {
+                status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
+            }
             CodeDictationModelDesc.Text = (model?.Description ?? "") + status;
         }
     }
@@ -903,8 +944,28 @@ public partial class SettingsWindow : Window
         CerebrasApiKeyPasswordBox.Password = "";
         UpdateApiKeyStatus();
         PopulateModels(); // Refresh model availability
-        
+
         MessageBox.Show("Cerebras API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void SaveGroqApiKey_Click(object sender, RoutedEventArgs e)
+    {
+        var apiKey = GroqApiKeyPasswordBox.Password.Trim();
+
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            CredentialManager.DeleteGroqApiKey();
+        }
+        else
+        {
+            CredentialManager.SaveGroqApiKey(apiKey);
+        }
+
+        GroqApiKeyPasswordBox.Password = "";
+        UpdateApiKeyStatus();
+        PopulateModels(); // Refresh model availability
+
+        MessageBox.Show("Groq API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)

@@ -207,6 +207,14 @@ public class AppSettings
     /// Custom prompt for code dictation (Python). Empty = use default.
     /// </summary>
     public string CustomCodeDictationPrompt { get; set; } = string.Empty;
+
+    // ===== Screenshot Context =====
+    
+    /// <summary>
+    /// Whether screenshot context is enabled for AI queries.
+    /// When enabled, captures the active window when hotkey is pressed.
+    /// </summary>
+    public bool ScreenshotEnabled { get; set; } = false;
 }
 
 /// <summary>

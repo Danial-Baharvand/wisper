@@ -31,10 +31,12 @@ public interface IPolishService : IDisposable
     /// Generate text from a spoken instruction (no input text).
     /// </summary>
     /// <param name="instruction">The spoken instruction (e.g., "write an apology letter").</param>
+    /// <param name="imageBytes">Optional screenshot/image bytes (PNG) for multimodal context.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The generated text.</returns>
     Task<string> GenerateAsync(
         string instruction,
+        byte[]? imageBytes = null,
         CancellationToken cancellationToken = default);
 }
 

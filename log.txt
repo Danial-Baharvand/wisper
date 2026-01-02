@@ -3007,3 +3007,54 @@
   "utterances": false
 }
 2026-01-02 15:51:42.280 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 16:50:20.442 [Information] DeepgramHttpClientOptions: OnPrem: False
+2026-01-02 16:50:20.452 [Information] DeepgramHttpClientOptions: APIVersion: v1
+2026-01-02 16:50:20.458 [Information] DeepgramHttpClientOptions: REST BaseAddress does not contain API version: api.deepgram.com
+2026-01-02 16:50:20.458 [Information] DeepgramHttpClientOptions: BaseAddress contains no protocol: api.deepgram.com/v1
+2026-01-02 16:50:20.458 [Information] DeepgramHttpClientOptions: BaseAddress: https://api.deepgram.com/v1
+2026-01-02 16:50:20.462 [Information] HttpClientFactory.Create: HttpClient ID: DEEPGRAM_HTTP_CLIENT
+2026-01-02 16:50:20.484 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 16:50:20.502 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 16:50:21.683 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 16:50:47.114 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 16:50:47.120 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 16:50:48.754 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded
+2026-01-02 16:51:55.144 [Information] TranscribeFile: source: System.IO.FileStream
+2026-01-02 16:51:55.148 [Information] TranscribeFile: prerecordedSchema:
+{
+  "diarize": false,
+  "dictation": false,
+  "filler_words": true,
+  "language": "en",
+  "model": "nova-3",
+  "numerals": false,
+  "paragraphs": true,
+  "punctuate": true,
+  "smart_format": true,
+  "utterances": false
+}
+2026-01-02 16:51:56.779 [Information] TranscribeFile: https://api.deepgram.com/v1/listen Succeeded

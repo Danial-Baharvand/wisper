@@ -50,6 +50,14 @@ public class ServiceFactory
                 model);
         }
 
+        // Use Groq for Groq Whisper models
+        if (model.Source == ModelSource.Groq)
+        {
+            return new GroqTranscriptionService(
+                _loggerFactory.CreateLogger<GroqTranscriptionService>(),
+                model);
+        }
+
         return new LocalWhisperService(
             _loggerFactory.CreateLogger<LocalWhisperService>(),
             _modelManager,
@@ -77,6 +85,16 @@ public class ServiceFactory
         {
             return new CerebrasPolishService(
                 _loggerFactory.CreateLogger<CerebrasPolishService>(),
+                modelId,
+                customTypingPrompt,
+                customNotesPrompt,
+                _codeContextService);
+        }
+
+        if (model.Source == ModelSource.Groq)
+        {
+            return new GroqPolishService(
+                _loggerFactory.CreateLogger<GroqPolishService>(),
                 modelId,
                 customTypingPrompt,
                 customNotesPrompt,
@@ -119,6 +137,15 @@ public class ServiceFactory
             return new CerebrasCodeDictationService(
                 model,
                 _loggerFactory.CreateLogger<CerebrasCodeDictationService>(),
+                customPrompt);
+        }
+
+        if (model.Source == ModelSource.Groq)
+        {
+            // Use Groq API for code dictation
+            return new GroqCodeDictationService(
+                model,
+                _loggerFactory.CreateLogger<GroqCodeDictationService>(),
                 customPrompt);
         }
 

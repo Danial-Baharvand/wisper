@@ -110,7 +110,7 @@
             </DoubleAnimation>
         </Storyboard>
         
-        <!-- Provider buttons show animation -->
+        <!-- Provider buttons show animation (right side) -->
         <Storyboard x:Key="ProviderButtonsShowAnimation">
             <DoubleAnimation Storyboard.TargetName="ProviderButtonsPanel" Storyboard.TargetProperty="Opacity"
                            From="0" To="1" Duration="0:0:0.2"/>
@@ -122,12 +122,32 @@
             </DoubleAnimation>
         </Storyboard>
         
-        <!-- Provider buttons hide animation -->
+        <!-- Provider buttons hide animation (right side) -->
         <Storyboard x:Key="ProviderButtonsHideAnimation">
             <DoubleAnimation Storyboard.TargetName="ProviderButtonsPanel" Storyboard.TargetProperty="Opacity"
                            To="0" Duration="0:0:0.15"/>
             <DoubleAnimation Storyboard.TargetName="ProviderButtonsTransform" Storyboard.TargetProperty="X"
                            To="-20" Duration="0:0:0.15"/>
+        </Storyboard>
+        
+        <!-- Left buttons show animation (settings/screenshot) -->
+        <Storyboard x:Key="LeftButtonsShowAnimation">
+            <DoubleAnimation Storyboard.TargetName="LeftButtonsPanel" Storyboard.TargetProperty="Opacity"
+                           From="0" To="1" Duration="0:0:0.2"/>
+            <DoubleAnimation Storyboard.TargetName="LeftButtonsTransform" Storyboard.TargetProperty="X"
+                           From="20" To="0" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Left buttons hide animation -->
+        <Storyboard x:Key="LeftButtonsHideAnimation">
+            <DoubleAnimation Storyboard.TargetName="LeftButtonsPanel" Storyboard.TargetProperty="Opacity"
+                           To="0" Duration="0:0:0.15"/>
+            <DoubleAnimation Storyboard.TargetName="LeftButtonsTransform" Storyboard.TargetProperty="X"
+                           To="20" Duration="0:0:0.15"/>
         </Storyboard>
         
         <!-- Provider button style -->
@@ -235,8 +255,74 @@
                 </Border>
             </Grid>
             
-            <!-- Main bar and provider buttons container -->
+            <!-- Main bar and buttons container -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                
+                <!-- Left Side Buttons (Settings, Screenshot) - fade in when hovered -->
+                <StackPanel x:Name="LeftButtonsPanel" 
+                            Orientation="Horizontal" 
+                            VerticalAlignment="Center"
+                            Opacity="0">
+                    <StackPanel.RenderTransform>
+                        <TranslateTransform x:Name="LeftButtonsTransform" X="20"/>
+                    </StackPanel.RenderTransform>
+                    
+                    <!-- Settings Button -->
+                    <Border x:Name="SettingsButton" 
+                            Style="{StaticResource ProviderButtonStyle}"
+                            Background="#E6121820"
+                            ToolTip="Settings"
+                            Margin="0,0,4,0"
+                            MouseLeftButtonDown="SettingsButton_Click">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                        </Border.Effect>
+                        <!-- Settings gear icon -->
+                        <Grid>
+                            <Ellipse Width="20" Height="20"
+                                     StrokeThickness="2"
+                                     Stroke="#8892b0">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#8892b0" Opacity="0.2"/>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock Text="⚙" 
+                                       Foreground="#8892b0" 
+                                       FontSize="11"
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- Screenshot Context Button -->
+                    <Border x:Name="ScreenshotButton" 
+                            Style="{StaticResource ProviderButtonStyle}"
+                            Background="#E6121820"
+                            ToolTip="Screenshot Context (disabled)"
+                            Margin="0,0,4,0"
+                            MouseLeftButtonDown="ScreenshotButton_Click">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                        </Border.Effect>
+                        <!-- Camera/Screenshot icon -->
+                        <Grid>
+                            <Ellipse x:Name="ScreenshotIndicator" 
+                                     Width="20" Height="20"
+                                     StrokeThickness="2"
+                                     Stroke="#6b7280">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#6b7280" Opacity="0.2"/>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock x:Name="ScreenshotIcon" 
+                                       Text="📷" 
+                                       Foreground="#6b7280" 
+                                       FontSize="10"
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
                 
                 <!-- Main Voice Bar (always visible) - pill shape when idle, expands on hover/recording -->
                 <Border x:Name="MainBar" 

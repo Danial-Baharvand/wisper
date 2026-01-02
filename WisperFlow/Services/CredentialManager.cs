@@ -13,6 +13,7 @@ public static class CredentialManager
     private const string CredentialTarget = "WisperFlow_OpenAI_ApiKey";
     private const string DeepgramCredentialTarget = "WisperFlow_Deepgram_ApiKey";
     private const string CerebrasCredentialTarget = "WisperFlow_Cerebras_ApiKey";
+    private const string GroqCredentialTarget = "WisperFlow_Groq_ApiKey";
 
     /// <summary>
     /// Saves the API key to Windows Credential Manager.
@@ -279,6 +280,93 @@ public static class CredentialManager
 
         // Check Credential Manager
         var storedKey = GetCerebrasApiKey();
+        return !string.IsNullOrWhiteSpace(storedKey);
+    }
+
+    // ===== Groq API Key Management =====
+
+    /// <summary>
+    /// Saves the Groq API key to Windows Credential Manager.
+    /// </summary>
+    public static bool SaveGroqApiKey(string apiKey)
+    {
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            DeleteGroqApiKey();
+            return true;
+        }
+
+        var credentialBlob = Encoding.Unicode.GetBytes(apiKey);
+
+        var credential = new CREDENTIAL
+        {
+            Type = CRED_TYPE_GENERIC,
+            TargetName = GroqCredentialTarget,
+            CredentialBlobSize = (uint)credentialBlob.Length,
+            CredentialBlob = Marshal.AllocHGlobal(credentialBlob.Length),
+            Persist = CRED_PERSIST_LOCAL_MACHINE,
+            UserName = "WisperFlow"
+        };
+
+        try
+        {
+            Marshal.Copy(credentialBlob, 0, credential.CredentialBlob, credentialBlob.Length);
+            return CredWrite(ref credential, 0);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(credential.CredentialBlob);
+        }
+    }
+
+    /// <summary>
+    /// Retrieves the Groq API key from Windows Credential Manager.
+    /// </summary>
+    public static string? GetGroqApiKey()
+    {
+        if (!CredRead(GroqCredentialTarget, CRED_TYPE_GENERIC, 0, out var credentialPtr))
+        {
+            return null;
+        }
+
+        try
+        {
+            var credential = Marshal.PtrToStructure<CREDENTIAL>(credentialPtr);
+            if (credential.CredentialBlob == IntPtr.Zero || credential.CredentialBlobSize == 0)
+            {
+                return null;
+            }
+
+            return Marshal.PtrToStringUni(credential.CredentialBlob, (int)credential.CredentialBlobSize / 2);
+        }
+        finally
+        {
+            CredFree(credentialPtr);
+        }
+    }
+
+    /// <summary>
+    /// Deletes the Groq API key from Windows Credential Manager.
+    /// </summary>
+    public static bool DeleteGroqApiKey()
+    {
+        return CredDelete(GroqCredentialTarget, CRED_TYPE_GENERIC, 0);
+    }
+
+    /// <summary>
+    /// Checks if a Groq API key is stored (either in Credential Manager or environment).
+    /// </summary>
+    public static bool HasGroqApiKey()
+    {
+        // Check environment variable first
+        var envKey = Environment.GetEnvironmentVariable("GROQ_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envKey))
+        {
+            return true;
+        }
+
+        // Check Credential Manager
+        var storedKey = GetGroqApiKey();
         return !string.IsNullOrWhiteSpace(storedKey);
     }
 

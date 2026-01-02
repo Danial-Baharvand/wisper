@@ -28,7 +28,7 @@ public class ModelInfo
 }
 
 public enum ModelType { Whisper, LLM }
-public enum ModelSource { OpenAI, Local, FasterWhisper, Deepgram, Cerebras }
+public enum ModelSource { OpenAI, Local, FasterWhisper, Deepgram, Cerebras, Groq }
 
 public class DownloadProgress
 {
@@ -283,6 +283,29 @@ public static class ModelCatalog
         SizeBytes = 0
     };
     
+    // ===== GROQ WHISPER MODELS (cloud API, requires Groq API key) =====
+    // Ultra-fast Whisper inference via Groq's LPU
+    
+    public static readonly ModelInfo GroqWhisperLargeV3Turbo = new()
+    {
+        Id = "groq-whisper-large-v3-turbo",
+        Name = "🚀 Groq Whisper Large-v3 Turbo",
+        Description = "Fast Whisper inference via Groq LPU",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Groq,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo GroqWhisperLargeV3 = new()
+    {
+        Id = "groq-whisper-large-v3",
+        Name = "🚀 Groq Whisper Large-v3",
+        Description = "High quality Whisper via Groq LPU",
+        Type = ModelType.Whisper,
+        Source = ModelSource.Groq,
+        SizeBytes = 0
+    };
+    
     // ===== LLM MODELS =====
     
     public static readonly ModelInfo OpenAIGpt4oMini = new()
@@ -364,6 +387,28 @@ public static class ModelCatalog
         Description = "ZAI GLM 4.6 model",
         Type = ModelType.LLM,
         Source = ModelSource.Cerebras,
+        SizeBytes = 0
+    };
+    
+    // ===== GROQ LLM MODELS (Cloud API - Ultra-fast LPU inference) =====
+    
+    public static readonly ModelInfo GroqLlama4Scout = new()
+    {
+        Id = "groq-llama-4-scout",
+        Name = "🚀 Groq Llama 4 Scout",
+        Description = "Llama 4 Scout 17B, ultra-fast LPU inference",
+        Type = ModelType.LLM,
+        Source = ModelSource.Groq,
+        SizeBytes = 0
+    };
+    
+    public static readonly ModelInfo GroqLlama4Maverick = new()
+    {
+        Id = "groq-llama-4-maverick",
+        Name = "🚀 Groq Llama 4 Maverick",
+        Description = "Llama 4 Maverick 17B-128E, advanced reasoning",
+        Type = ModelType.LLM,
+        Source = ModelSource.Groq,
         SizeBytes = 0
     };
     
@@ -500,6 +545,8 @@ public static class ModelCatalog
         // Cloud APIs (fastest, requires API key)
         OpenAIWhisper,
         DeepgramNova3, DeepgramNova2, DeepgramWhisperCloud, DeepgramNova2Medical, DeepgramBase,
+        // Groq Cloud (ultra-fast LPU inference)
+        GroqWhisperLargeV3Turbo, GroqWhisperLargeV3,
         // Faster-Whisper models (fast local, requires Python)
         FasterWhisperBaseEn, FasterWhisperSmallEn, FasterWhisperMediumEn,
         FasterWhisperDistilLargeV3, FasterWhisperLargeV3, FasterWhisperTinyEn,
@@ -519,6 +566,8 @@ public static class ModelCatalog
         // Cerebras Cloud (fastest inference)
         CerebrasLlama33_70B, CerebrasLlama31_8B, CerebrasGptOss120B,
         CerebrasQwen3_32B, CerebrasQwen3_235B, CerebrasZaiGlm,
+        // Groq Cloud (ultra-fast LPU inference)
+        GroqLlama4Scout, GroqLlama4Maverick,
         // Best local models (2024/2025)
         Qwen25_3B, Qwen3_1B, Gemma2_2B, Llama32_3B, SmolLM2_1B,
         // Other local models
@@ -536,6 +585,8 @@ public static class ModelCatalog
         // Cerebras Cloud (fastest inference)
         CerebrasLlama33_70B, CerebrasLlama31_8B, CerebrasGptOss120B,
         CerebrasQwen3_32B, CerebrasQwen3_235B, CerebrasZaiGlm,
+        // Groq Cloud (ultra-fast LPU inference)
+        GroqLlama4Scout, GroqLlama4Maverick,
         // 3B+ local models only (recommended for code)
         Qwen25_3B,      // 3B - best overall quality
         Llama32_3B,     // 3B - strong generalist

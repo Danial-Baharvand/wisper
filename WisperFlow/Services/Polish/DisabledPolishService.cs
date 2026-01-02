@@ -16,7 +16,7 @@ public class DisabledPolishService : IPolishService
     public Task<string> TransformAsync(string originalText, string command,
         CancellationToken cancellationToken = default) => Task.FromResult(originalText);
 
-    public Task<string> GenerateAsync(string instruction,
+    public Task<string> GenerateAsync(string instruction, byte[]? imageBytes = null,
         CancellationToken cancellationToken = default) => Task.FromResult("");
 
     public void Dispose() { }

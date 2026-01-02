@@ -21,6 +21,7 @@ public class DictationOrchestrator
     private readonly SettingsManager _settingsManager;
     private readonly ServiceFactory _serviceFactory;
     private readonly CodeContextService _codeContextService;
+    private readonly ScreenshotService _screenshotService;
     private readonly ILogger<DictationOrchestrator> _logger;
 
     private ITranscriptionService? _transcriptionService;
@@ -37,6 +38,7 @@ public class DictationOrchestrator
     private string? _commandModeSearchContext;  // Highlighted text for search context (when not in textbox)
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
     private bool _isStreamingActive;  // Track if Deepgram streaming is active
+    private byte[]? _currentScreenshot;  // Screenshot captured at hotkey press (for command mode)
 
     public DictationOrchestrator(
         HotkeyManager hotkeyManager,
@@ -46,6 +48,7 @@ public class DictationOrchestrator
         SettingsManager settingsManager,
         ServiceFactory serviceFactory,
         CodeContextService codeContextService,
+        ScreenshotService screenshotService,
         ILogger<DictationOrchestrator> logger)
     {
         _hotkeyManager = hotkeyManager;
@@ -55,6 +58,7 @@ public class DictationOrchestrator
         _settingsManager = settingsManager;
         _serviceFactory = serviceFactory;
         _codeContextService = codeContextService;
+        _screenshotService = screenshotService;
         _logger = logger;
 
         _hotkeyManager.RecordStart += OnRecordStart;
@@ -669,6 +673,16 @@ public class DictationOrchestrator
             _currentOperationCts = new CancellationTokenSource();
             _commandModeSelectedText = null;  // Will be captured on stop
             
+            // CRITICAL: Capture screenshot IMMEDIATELY before any UI elements appear
+            // This captures what the user was looking at (e.g., email, webpage, document)
+            _currentScreenshot = null;
+            if (_dictationBar.ScreenshotEnabled)
+            {
+                _currentScreenshot = _screenshotService.CaptureActiveWindow();
+                _logger.LogDebug("Screenshot captured for command mode: {Size} bytes", 
+                    _currentScreenshot?.Length ?? 0);
+            }
+            
             // Start recording and show overlay IMMEDIATELY
             _dictationBar.ShowRecording("Command Mode");
             _audioRecorder.StartRecording();
@@ -679,6 +693,7 @@ public class DictationOrchestrator
             _logger.LogError(ex, "Failed to start command recording");
             _dictationBar.ShowError("Failed to start recording");
             _commandModeSelectedText = null;
+            _currentScreenshot = null;
         }
     }
 
@@ -812,14 +827,17 @@ public class DictationOrchestrator
                 }
 
                 _dictationBar.Hide();
-                
+
                 // Use embedded browser for ChatGPT and Gemini
                 var selectedProvider = _dictationBar.SelectedProvider;
                 if (selectedProvider is "ChatGPT" or "Gemini")
                 {
-                    await _dictationBar.OpenAndQueryAsync(selectedProvider, searchQuery);
-                    _logger.LogInformation("Opened query in embedded {Provider}: {Query}", selectedProvider,
-                        searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery);
+                    // Pass screenshot for context if captured
+                    await _dictationBar.OpenAndQueryAsync(selectedProvider, searchQuery, _currentScreenshot);
+                    _logger.LogInformation("Opened query in embedded {Provider}: {Query}, Screenshot: {HasScreenshot}", 
+                        selectedProvider,
+                        searchQuery.Length > 50 ? searchQuery[..50] + "..." : searchQuery,
+                        _currentScreenshot != null);
                 }
                 else
                 {
@@ -844,6 +862,7 @@ public class DictationOrchestrator
             _isProcessing = false;
             _commandModeSelectedText = null;  // Clear captured text
             _commandModeSearchContext = null;  // Clear search context
+            _currentScreenshot = null;  // Clear screenshot
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();
@@ -921,7 +940,8 @@ public class DictationOrchestrator
         string generatedText;
         try
         {
-            generatedText = await _commandModeService.GenerateAsync(instruction, cancellationToken);
+            // Pass screenshot for multimodal context if available (Groq Llama 4 supports images)
+            generatedText = await _commandModeService.GenerateAsync(instruction, _currentScreenshot, cancellationToken);
         }
         catch (InvalidOperationException ex)
         {
@@ -930,9 +950,10 @@ public class DictationOrchestrator
             return;
         }
 
-        _logger.LogDebug("GenerateAsync returned: '{Text}'", 
+        _logger.LogDebug("GenerateAsync returned: '{Text}', ImageUsed: {HasImage}", 
             string.IsNullOrEmpty(generatedText) ? "(empty)" : 
-            (generatedText.Length > 100 ? generatedText[..100] + "..." : generatedText));
+            (generatedText.Length > 100 ? generatedText[..100] + "..." : generatedText),
+            _currentScreenshot != null);
 
         if (string.IsNullOrWhiteSpace(generatedText))
         {

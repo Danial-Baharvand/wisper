@@ -583,9 +583,10 @@ OUTPUT: Return ONLY cleaned text inside <result></result> tags. No explanations.
         }
     }
 
-    public async Task<string> GenerateAsync(string instruction, CancellationToken cancellationToken = default)
+    public async Task<string> GenerateAsync(string instruction, byte[]? imageBytes = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(instruction)) return "";
+        // Note: imageBytes is accepted but not used - local LLMs don't support multimodal yet
         
         if (_executor == null || _context == null)
         {
