@@ -29,6 +29,10 @@ public partial class App : Application
 
     private void Application_Startup(object sender, StartupEventArgs e)
     {
+        // Immediate console output to confirm new code is running
+        Console.WriteLine("[WISPERFLOW] Application starting with new image upload code");
+        System.Diagnostics.Debug.WriteLine("[WISPERFLOW] Application starting with new image upload code");
+
         // Set up global exception handlers
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         DispatcherUnhandledException += OnDispatcherUnhandledException;

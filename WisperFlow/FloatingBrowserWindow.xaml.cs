@@ -81,6 +81,9 @@ public partial class FloatingBrowserWindow : Window
         
         // Position above DictationBar (bottom-center of screen)
         PositionAboveDictationBar();
+        
+        // Initialize strategy button states (Strategy 0 = Original selected by default)
+        UpdateStrategyButtonSelection(0);
     }
 
     /// <summary>
@@ -276,9 +279,13 @@ public partial class FloatingBrowserWindow : Window
     /// <param name="screenshotBytes">Optional PNG screenshot bytes to attach.</param>
     public async Task NavigateAndQueryAsync(string? query = null, byte[]? screenshotBytes = null)
     {
+        System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Called with query='{query?.Substring(0, Math.Min(50, query?.Length ?? 0))}'... screenshotBytes={screenshotBytes?.Length ?? 0} bytes");
+
         var webView = ActiveWebView;
         var isInitialized = _currentProvider == "ChatGPT" ? _chatGPTInitialized : _geminiInitialized;
-        
+
+        System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Provider={_currentProvider}, Initialized={isInitialized}, WebViewReady={webView?.CoreWebView2 != null}");
+
         if (!isInitialized || webView.CoreWebView2 == null) return;
         
         // Safety check: if page is still loading (e.g., refresh), wait briefly
@@ -295,7 +302,10 @@ public partial class FloatingBrowserWindow : Window
         // Upload screenshot if provided
         if (screenshotBytes != null && screenshotBytes.Length > 0)
         {
+            System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Uploading screenshot using Strategy {_activeUploadStrategy}");
+            System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Screenshot size: {screenshotBytes.Length} bytes");
             await UploadScreenshotAsync(screenshotBytes);
+            System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Screenshot upload completed");
         }
         
         // Submit the query
@@ -307,15 +317,34 @@ public partial class FloatingBrowserWindow : Window
     
     /// <summary>
     /// Uploads a screenshot to the current AI provider's chat.
-    /// Uses clipboard paste which is the most reliable method for both ChatGPT and Gemini.
+    /// Uses the currently selected strategy (for testing) or default clipboard method.
     /// </summary>
     private async Task UploadScreenshotAsync(byte[] screenshotBytes)
+    {
+        // Use strategy selector if a test strategy is active, otherwise use original method
+        if (_activeUploadStrategy > 0)
+        {
+            await UploadScreenshotWithStrategyAsync(screenshotBytes, _activeUploadStrategy);
+            return;
+        }
+
+        // Original clipboard paste method (strategy 0)
+        await UploadScreenshotOriginalAsync(screenshotBytes);
+    }
+
+    /// <summary>
+    /// Original clipboard paste method (Strategy 0) - VERIFIED WORKING.
+    /// Uses Windows clipboard + Ctrl+V which Gemini supports natively.
+    /// </summary>
+    private async Task UploadScreenshotOriginalAsync(byte[] screenshotBytes)
     {
         var webView = ActiveWebView;
         if (webView?.CoreWebView2 == null) return;
         
         try
         {
+            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Starting, bytes: {screenshotBytes.Length}");
+            
             // Create a bitmap from the PNG bytes and put it on the clipboard
             using var ms = new System.IO.MemoryStream(screenshotBytes);
             var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
@@ -325,26 +354,72 @@ public partial class FloatingBrowserWindow : Window
             bitmapImage.EndInit();
             bitmapImage.Freeze();
             
-            // Put the image on the clipboard
+            // Put the image on the clipboard (this is the key - Gemini reads from clipboard)
             Clipboard.SetImage(bitmapImage);
+            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Image set to clipboard");
             
-            // Focus the input area first via JavaScript
-            var focusScript = GetFocusInputScript(_currentProvider);
-            await webView.CoreWebView2.ExecuteScriptAsync(focusScript);
-            await Task.Delay(200);
-            
-            // Focus the WebView control itself
+            // CRITICAL: Focus the WebView control FIRST (before JavaScript)
+            // This ensures keyboard input goes to the right place
             webView.Focus();
             await Task.Delay(100);
             
-            // Simulate Ctrl+V paste using the same method as text paste
+            // Focus the input area via JavaScript
+            var focusScript = GetFocusInputScript(_currentProvider);
+            var focusResult = await webView.CoreWebView2.ExecuteScriptAsync(focusScript);
+            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Focus script result: {focusResult}");
+            await Task.Delay(400); // Increased delay for focus to settle
+            
+            // Click the input to ensure it's active (Gemini may need this)
+            var clickScript = @"
+                (function() {
+                    const input = document.querySelector('textarea[placeholder*=""Enter a prompt""]') ||
+                                 document.querySelector('textarea[placeholder*=""Ask Gemini""]') ||
+                                 document.querySelector('textarea');
+                    if (input) {
+                        input.click();
+                        input.focus();
+                        return 'clicked';
+                    }
+                    return 'not-found';
+                })();
+            ";
+            await webView.CoreWebView2.ExecuteScriptAsync(clickScript);
+            await Task.Delay(300);
+            
+            // Ensure WebView still has focus for keyboard input
+            webView.Focus();
+            await Task.Delay(200);
+            
+            // Simulate Ctrl+V paste - Gemini will read from clipboard
+            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Sending Ctrl+V");
             SendCtrlV();
             
-            // Wait for the image to upload/process
-            await Task.Delay(1500);
+            // Wait for Gemini to process the clipboard image and show thumbnail
+            await Task.Delay(2500); // Increased delay for image processing and thumbnail display
+            
+            // Verify image was added by checking for image elements
+            var verifyScript = @"
+                (function() {
+                    const input = document.querySelector('textarea[placeholder*=""Enter a prompt""]') ||
+                                 document.querySelector('textarea[placeholder*=""Ask Gemini""]') ||
+                                 document.querySelector('textarea');
+                    if (!input) return 'no-input';
+                    
+                    const container = input.closest('div') || input.parentElement;
+                    if (!container) return 'no-container';
+                    
+                    const images = container.querySelectorAll('img');
+                    return images.length > 0 ? 'image-found:' + images.length : 'no-image';
+                })();
+            ";
+            var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
+            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Verification result: {verifyResult}");
+            
+            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Completed");
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Error: {ex.Message}");
             // Screenshot upload failed - continue with query anyway
         }
     }
@@ -771,6 +846,73 @@ public partial class FloatingBrowserWindow : Window
     {
         BrowserClosing?.Invoke(this, EventArgs.Empty);
         await HideWithAnimationAsync();
+    }
+
+    /// <summary>
+    /// Updates the visual selection state of strategy buttons.
+    /// </summary>
+    private void UpdateStrategyButtonSelection(int selectedStrategy)
+    {
+        var buttons = new[]
+        {
+            Strategy0Button, Strategy1Button, Strategy2Button,
+            Strategy3Button, Strategy4Button, Strategy5Button, Strategy6Button,
+            Strategy7Button, Strategy8Button, Strategy9Button, Strategy10Button,
+            Strategy11Button, Strategy12Button
+        };
+
+        foreach (var btn in buttons)
+        {
+            if (btn?.Tag is string tagStr && int.TryParse(tagStr, out int strategyIndex))
+            {
+                if (strategyIndex == selectedStrategy)
+                {
+                    btn.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xa3, 0x7f));
+                    btn.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+                }
+                else
+                {
+                    btn.Background = System.Windows.Media.Brushes.Transparent;
+                    btn.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// EXPERIMENTAL: Handler for strategy test buttons.
+    /// Sets the active upload strategy and provides visual feedback.
+    /// </summary>
+    private void StrategyButton_Click(object sender, RoutedEventArgs e)
+    {
+        System.Diagnostics.Debug.WriteLine($"[StrategyButton] Click detected on button with tag: {(sender as System.Windows.Controls.Button)?.Tag}");
+
+        if (sender is System.Windows.Controls.Button button && button.Tag is string tagStr && int.TryParse(tagStr, out int strategyIndex))
+        {
+            System.Diagnostics.Debug.WriteLine($"[StrategyButton] Setting strategy to: {strategyIndex}");
+            SetUploadStrategy(strategyIndex);
+            UpdateStrategyButtonSelection(strategyIndex);
+
+            var strategyName = strategyIndex switch
+            {
+                0 => "Original (Clipboard Paste)",
+                1 => "Enhanced Clipboard with Verification & Retry",
+                2 => "JavaScript File Input Simulation",
+                3 => "Drag & Drop via JavaScript",
+                4 => "Direct DOM File Input Manipulation",
+                5 => "Hybrid Fallback Chain",
+                6 => "WebView2 PostMessage + Page Script",
+                7 => "Button Triggered Upload",
+                8 => "Gemini Enhanced Clipboard",
+                9 => "Dialog Intercept Method",
+                10 => "Multi-Method Gemini",
+                11 => "Gemini Native Upload",
+                12 => "Direct Image Injection (Data URL)",
+                _ => $"Unknown Strategy {strategyIndex}"
+            };
+
+            System.Diagnostics.Debug.WriteLine($"[Image Upload] Strategy {strategyIndex} selected: {strategyName}");
+        }
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
