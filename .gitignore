@@ -88,3 +88,4 @@ wisperflow_debug.wav
 # Publish profiles
 PublishProfiles/
 bin/
+installer/
