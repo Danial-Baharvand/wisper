@@ -81,9 +81,6 @@ public partial class FloatingBrowserWindow : Window
         
         // Position above DictationBar (bottom-center of screen)
         PositionAboveDictationBar();
-        
-        // Initialize strategy button states (Strategy 0 = Original selected by default)
-        UpdateStrategyButtonSelection(0);
     }
 
     /// <summary>
@@ -302,10 +299,19 @@ public partial class FloatingBrowserWindow : Window
         // Upload screenshot if provided
         if (screenshotBytes != null && screenshotBytes.Length > 0)
         {
-            System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Uploading screenshot using Strategy {_activeUploadStrategy}");
+            System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Uploading screenshot");
             System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Screenshot size: {screenshotBytes.Length} bytes");
             await UploadScreenshotAsync(screenshotBytes);
             System.Diagnostics.Debug.WriteLine($"[NavigateAndQueryAsync] Screenshot upload completed");
+            
+            // For Gemini: Wait for image upload to complete before submitting
+            // Gemini shows .image-preview.loading while uploading, we must wait for it to finish
+            if (_currentProvider.ToLowerInvariant() == "gemini")
+            {
+                System.Diagnostics.Debug.WriteLine("[NavigateAndQueryAsync] Waiting for Gemini image upload to complete...");
+                await WaitForGeminiImageUploadAsync();
+                System.Diagnostics.Debug.WriteLine("[NavigateAndQueryAsync] Gemini image upload ready");
+            }
         }
         
         // Submit the query
@@ -317,151 +323,216 @@ public partial class FloatingBrowserWindow : Window
     
     /// <summary>
     /// Uploads a screenshot to the current AI provider's chat.
-    /// Uses the currently selected strategy (for testing) or default clipboard method.
+    /// Uses JavaScript injection: file input for ChatGPT, ClipboardEvent paste for Gemini.
     /// </summary>
     private async Task UploadScreenshotAsync(byte[] screenshotBytes)
     {
-        // Use strategy selector if a test strategy is active, otherwise use original method
-        if (_activeUploadStrategy > 0)
+        var webView = ActiveWebView;
+        if (webView?.CoreWebView2 == null)
         {
-            await UploadScreenshotWithStrategyAsync(screenshotBytes, _activeUploadStrategy);
+            System.Diagnostics.Debug.WriteLine("[UploadScreenshot] WebView not ready, aborting");
             return;
         }
 
-        // Original clipboard paste method (strategy 0)
-        await UploadScreenshotOriginalAsync(screenshotBytes);
+        var provider = _currentProvider.ToLowerInvariant();
+        var base64Image = Convert.ToBase64String(screenshotBytes);
+        System.Diagnostics.Debug.WriteLine($"[UploadScreenshot] Starting for {provider}, {screenshotBytes.Length} bytes");
+
+        string script;
+
+        if (provider == "gemini")
+        {
+            // Gemini: Use ClipboardEvent paste on .ql-editor (verified working)
+            script = $@"
+                (function() {{
+                    try {{
+                        console.log('Gemini: Using ClipboardEvent paste');
+
+                        // Find Gemini's Quill editor
+                        const input = document.querySelector('.ql-editor') || 
+                                      document.querySelector('rich-textarea') || 
+                                      document.querySelector('[contenteditable=""true""]');
+
+                        if (!input) {{
+                            console.log('No Gemini input found');
+                            return 'no-input-found';
+                        }}
+
+                        console.log('Found Gemini input:', input.tagName, input.className);
+                        input.focus();
+                        input.click();
+
+                        // Convert base64 to File
+                        const base64Data = '{base64Image}';
+                        const byteCharacters = atob(base64Data);
+                        const byteArray = new Uint8Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {{
+                            byteArray[i] = byteCharacters.charCodeAt(i);
+                        }}
+                        const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                        const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                        // Create DataTransfer and dispatch ClipboardEvent
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+
+                        const pasteEvent = new ClipboardEvent('paste', {{
+                            bubbles: true,
+                            cancelable: true,
+                            clipboardData: dataTransfer
+                        }});
+
+                        input.dispatchEvent(pasteEvent);
+                        console.log('Gemini paste event dispatched');
+
+                        return 'paste-dispatched';
+                    }} catch (e) {{
+                        console.error('Gemini upload error:', e);
+                        return 'error: ' + e.message;
+                    }}
+                }})();
+            ";
+        }
+        else
+        {
+            // ChatGPT: Use file input approach (verified working)
+            script = $@"
+                (function() {{
+                    try {{
+                        console.log('ChatGPT: Using file input');
+
+                        // Convert base64 to File
+                        const base64Data = '{base64Image}';
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+                        for (let i = 0; i < byteCharacters.length; i++) {{
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }}
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], {{ type: 'image/png' }});
+                        const file = new File([blob], 'screenshot.png', {{ type: 'image/png' }});
+
+                        // Find ChatGPT file input
+                        const fileInput = document.querySelector('input[type=""file""]')
+                                       || document.querySelector('input[accept*=""image""]')
+                                       || document.querySelector('input[data-testid*=""file""]');
+
+                        if (fileInput) {{
+                            console.log('ChatGPT: Found file input:', fileInput);
+
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+                            fileInput.files = dataTransfer.files;
+
+                            fileInput.dispatchEvent(new Event('change', {{ bubbles: true, cancelable: true }}));
+                            fileInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+
+                            return 'success';
+                        }}
+
+                        console.log('No file input found');
+                        return 'no-input-found';
+                    }} catch (e) {{
+                        console.error('ChatGPT upload error:', e);
+                        return 'error: ' + e.message;
+                    }}
+                }})();
+            ";
+        }
+
+        var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+        System.Diagnostics.Debug.WriteLine($"[UploadScreenshot] {provider} result: {result}");
+
+        await Task.Delay(2000);
     }
 
     /// <summary>
-    /// Original clipboard paste method (Strategy 0) - VERIFIED WORKING.
-    /// Uses Windows clipboard + Ctrl+V which Gemini supports natively.
+    /// Simple logging method that writes to log.txt file
     /// </summary>
-    private async Task UploadScreenshotOriginalAsync(byte[] screenshotBytes)
+    private static void LogToFile(string message)
+    {
+        try
+        {
+            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log.txt");
+            string logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [ImageUpload] {message}{Environment.NewLine}";
+            System.IO.File.AppendAllText(logPath, logEntry);
+        }
+        catch
+        {
+            // Ignore logging errors
+        }
+    }
+
+    /// <summary>
+    /// Waits for Gemini to finish processing/uploading an image.
+    /// Gemini shows .image-preview.loading while uploading; we wait until it disappears.
+    /// </summary>
+    private async Task WaitForGeminiImageUploadAsync(int timeoutMs = 10000)
     {
         var webView = ActiveWebView;
         if (webView?.CoreWebView2 == null) return;
-        
-        try
+
+        var startTime = DateTime.UtcNow;
+        var checkScript = @"
+            (function() {
+                // Check if there's an image preview that's still loading
+                const loadingPreview = document.querySelector('.image-preview.loading');
+                const anyPreview = document.querySelector('.image-preview');
+                
+                if (loadingPreview) {
+                    return 'loading';
+                } else if (anyPreview) {
+                    return 'ready';
+                } else {
+                    return 'no-preview';
+                }
+            })();
+        ";
+
+        // First, wait a bit for the preview to appear
+        await Task.Delay(500);
+
+        // Then poll until loading is complete or timeout
+        while ((DateTime.UtcNow - startTime).TotalMilliseconds < timeoutMs)
         {
-            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Starting, bytes: {screenshotBytes.Length}");
-            
-            // Create a bitmap from the PNG bytes and put it on the clipboard
-            using var ms = new System.IO.MemoryStream(screenshotBytes);
-            var bitmapImage = new System.Windows.Media.Imaging.BitmapImage();
-            bitmapImage.BeginInit();
-            bitmapImage.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-            bitmapImage.StreamSource = ms;
-            bitmapImage.EndInit();
-            bitmapImage.Freeze();
-            
-            // Put the image on the clipboard (this is the key - Gemini reads from clipboard)
-            Clipboard.SetImage(bitmapImage);
-            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Image set to clipboard");
-            
-            // CRITICAL: Focus the WebView control FIRST (before JavaScript)
-            // This ensures keyboard input goes to the right place
-            webView.Focus();
-            await Task.Delay(100);
-            
-            // Focus the input area via JavaScript
-            var focusScript = GetFocusInputScript(_currentProvider);
-            var focusResult = await webView.CoreWebView2.ExecuteScriptAsync(focusScript);
-            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Focus script result: {focusResult}");
-            await Task.Delay(400); // Increased delay for focus to settle
-            
-            // Click the input to ensure it's active (Gemini may need this)
-            var clickScript = @"
-                (function() {
-                    const input = document.querySelector('textarea[placeholder*=""Enter a prompt""]') ||
-                                 document.querySelector('textarea[placeholder*=""Ask Gemini""]') ||
-                                 document.querySelector('textarea');
-                    if (input) {
-                        input.click();
-                        input.focus();
-                        return 'clicked';
+            try
+            {
+                var result = await webView.CoreWebView2.ExecuteScriptAsync(checkScript);
+                var status = result.Trim('"');
+                
+                System.Diagnostics.Debug.WriteLine($"[WaitForGeminiImageUpload] Status: {status}");
+                LogToFile($"[WaitForGeminiImageUpload] Status: {status}");
+
+                if (status == "ready")
+                {
+                    // Image is fully uploaded
+                    return;
+                }
+                else if (status == "no-preview")
+                {
+                    // No preview appeared, might not have uploaded - wait a bit more
+                    if ((DateTime.UtcNow - startTime).TotalMilliseconds > 2000)
+                    {
+                        // If nothing appeared after 2 seconds, continue anyway
+                        System.Diagnostics.Debug.WriteLine("[WaitForGeminiImageUpload] No preview found, continuing");
+                        return;
                     }
-                    return 'not-found';
-                })();
-            ";
-            await webView.CoreWebView2.ExecuteScriptAsync(clickScript);
-            await Task.Delay(300);
-            
-            // Ensure WebView still has focus for keyboard input
-            webView.Focus();
+                }
+                // status == "loading" - continue waiting
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WaitForGeminiImageUpload] Error: {ex.Message}");
+            }
+
             await Task.Delay(200);
-            
-            // Simulate Ctrl+V paste - Gemini will read from clipboard
-            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Sending Ctrl+V");
-            SendCtrlV();
-            
-            // Wait for Gemini to process the clipboard image and show thumbnail
-            await Task.Delay(2500); // Increased delay for image processing and thumbnail display
-            
-            // Verify image was added by checking for image elements
-            var verifyScript = @"
-                (function() {
-                    const input = document.querySelector('textarea[placeholder*=""Enter a prompt""]') ||
-                                 document.querySelector('textarea[placeholder*=""Ask Gemini""]') ||
-                                 document.querySelector('textarea');
-                    if (!input) return 'no-input';
-                    
-                    const container = input.closest('div') || input.parentElement;
-                    if (!container) return 'no-container';
-                    
-                    const images = container.querySelectorAll('img');
-                    return images.length > 0 ? 'image-found:' + images.length : 'no-image';
-                })();
-            ";
-            var verifyResult = await webView.CoreWebView2.ExecuteScriptAsync(verifyScript);
-            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Verification result: {verifyResult}");
-            
-            System.Diagnostics.Debug.WriteLine("[UploadScreenshotOriginal] Completed");
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[UploadScreenshotOriginal] Error: {ex.Message}");
-            // Screenshot upload failed - continue with query anyway
-        }
+
+        System.Diagnostics.Debug.WriteLine("[WaitForGeminiImageUpload] Timeout reached");
+        LogToFile("[WaitForGeminiImageUpload] Timeout - continuing anyway");
     }
-    
-    /// <summary>
-    /// Gets JavaScript to focus the input area for the specified provider.
-    /// </summary>
-    private static string GetFocusInputScript(string provider)
-    {
-        return provider.ToLowerInvariant() switch
-        {
-            "chatgpt" => @"
-                (function() {
-                    // Focus the ChatGPT textarea
-                    const textarea = document.querySelector('#prompt-textarea');
-                    if (textarea) {
-                        textarea.focus();
-                        return true;
-                    }
-                    // Try contenteditable div
-                    const div = document.querySelector('div[contenteditable=""true""]');
-                    if (div) {
-                        div.focus();
-                        return true;
-                    }
-                    return false;
-                })();",
-            
-            "gemini" => @"
-                (function() {
-                    // Focus Gemini's rich text editor
-                    const editor = document.querySelector('.ql-editor, div[contenteditable=""true""], .text-input-field textarea');
-                    if (editor) {
-                        editor.focus();
-                        return true;
-                    }
-                    return false;
-                })();",
-            
-            _ => "false"
-        };
-    }
+
+
 
     /// <summary>
     /// Submits a query using JavaScript DOM injection.
@@ -846,73 +917,6 @@ public partial class FloatingBrowserWindow : Window
     {
         BrowserClosing?.Invoke(this, EventArgs.Empty);
         await HideWithAnimationAsync();
-    }
-
-    /// <summary>
-    /// Updates the visual selection state of strategy buttons.
-    /// </summary>
-    private void UpdateStrategyButtonSelection(int selectedStrategy)
-    {
-        var buttons = new[]
-        {
-            Strategy0Button, Strategy1Button, Strategy2Button,
-            Strategy3Button, Strategy4Button, Strategy5Button, Strategy6Button,
-            Strategy7Button, Strategy8Button, Strategy9Button, Strategy10Button,
-            Strategy11Button, Strategy12Button
-        };
-
-        foreach (var btn in buttons)
-        {
-            if (btn?.Tag is string tagStr && int.TryParse(tagStr, out int strategyIndex))
-            {
-                if (strategyIndex == selectedStrategy)
-                {
-                    btn.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xa3, 0x7f));
-                    btn.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
-                }
-                else
-                {
-                    btn.Background = System.Windows.Media.Brushes.Transparent;
-                    btn.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x92, 0xb0));
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// EXPERIMENTAL: Handler for strategy test buttons.
-    /// Sets the active upload strategy and provides visual feedback.
-    /// </summary>
-    private void StrategyButton_Click(object sender, RoutedEventArgs e)
-    {
-        System.Diagnostics.Debug.WriteLine($"[StrategyButton] Click detected on button with tag: {(sender as System.Windows.Controls.Button)?.Tag}");
-
-        if (sender is System.Windows.Controls.Button button && button.Tag is string tagStr && int.TryParse(tagStr, out int strategyIndex))
-        {
-            System.Diagnostics.Debug.WriteLine($"[StrategyButton] Setting strategy to: {strategyIndex}");
-            SetUploadStrategy(strategyIndex);
-            UpdateStrategyButtonSelection(strategyIndex);
-
-            var strategyName = strategyIndex switch
-            {
-                0 => "Original (Clipboard Paste)",
-                1 => "Enhanced Clipboard with Verification & Retry",
-                2 => "JavaScript File Input Simulation",
-                3 => "Drag & Drop via JavaScript",
-                4 => "Direct DOM File Input Manipulation",
-                5 => "Hybrid Fallback Chain",
-                6 => "WebView2 PostMessage + Page Script",
-                7 => "Button Triggered Upload",
-                8 => "Gemini Enhanced Clipboard",
-                9 => "Dialog Intercept Method",
-                10 => "Multi-Method Gemini",
-                11 => "Gemini Native Upload",
-                12 => "Direct Image Injection (Data URL)",
-                _ => $"Unknown Strategy {strategyIndex}"
-            };
-
-            System.Diagnostics.Debug.WriteLine($"[Image Upload] Strategy {strategyIndex} selected: {strategyName}");
-        }
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
