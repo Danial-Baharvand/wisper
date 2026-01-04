@@ -1,0 +1,56 @@
+<Window x:Class="WisperFlow.ScreenshotOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Screenshot Selection"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        WindowState="Maximized"
+        Cursor="Cross"
+        KeyDown="Window_KeyDown">
+    
+    <Grid x:Name="RootGrid">
+        <!-- Dark overlay with hole cut out for selection -->
+        <Path x:Name="OverlayPath" Fill="#80000000" Stretch="None">
+            <Path.Data>
+                <CombinedGeometry GeometryCombineMode="Exclude">
+                    <CombinedGeometry.Geometry1>
+                        <!-- Full screen rectangle -->
+                        <RectangleGeometry x:Name="FullScreenRect"/>
+                    </CombinedGeometry.Geometry1>
+                    <CombinedGeometry.Geometry2>
+                        <!-- Selection rectangle (hole) -->
+                        <RectangleGeometry x:Name="SelectionRect" Rect="0,0,0,0"/>
+                    </CombinedGeometry.Geometry2>
+                </CombinedGeometry>
+            </Path.Data>
+        </Path>
+        
+        <!-- Selection border -->
+        <Border x:Name="SelectionBorder"
+                BorderBrush="#ff6b9d"
+                BorderThickness="2"
+                Background="Transparent"
+                Visibility="Collapsed"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"/>
+        
+        <!-- Instructions text -->
+        <TextBlock x:Name="InstructionsText"
+                   Text="Click and drag to select area. Press Escape to cancel."
+                   Foreground="White"
+                   FontSize="14"
+                   FontFamily="Segoe UI"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Top"
+                   Margin="0,50,0,0"
+                   Opacity="0.8">
+            <TextBlock.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="4" Opacity="0.5" ShadowDepth="1"/>
+            </TextBlock.Effect>
+        </TextBlock>
+    </Grid>
+</Window>

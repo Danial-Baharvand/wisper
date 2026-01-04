@@ -71,6 +71,9 @@ public class DictationOrchestrator
         _audioRecorder.WarningDurationReached += OnWarningDurationReached;
         _audioRecorder.RecordingProgress += OnRecordingProgress;
         _audioRecorder.AudioLevelChanged += OnAudioLevelChanged;
+        
+        // Subscribe to screenshot capture from user selection
+        _dictationBar.ContextScreenshotCaptured += OnContextScreenshotCaptured;
     }
 
     public void ApplySettings(AppSettings settings)
@@ -673,15 +676,9 @@ public class DictationOrchestrator
             _currentOperationCts = new CancellationTokenSource();
             _commandModeSelectedText = null;  // Will be captured on stop
             
-            // CRITICAL: Capture screenshot IMMEDIATELY before any UI elements appear
-            // This captures what the user was looking at (e.g., email, webpage, document)
+            // Screenshot is now captured via user selection during recording
+            // The ContextScreenshotCaptured event will set _currentScreenshot
             _currentScreenshot = null;
-            if (_dictationBar.ScreenshotEnabled)
-            {
-                _currentScreenshot = _screenshotService.CaptureActiveWindow();
-                _logger.LogDebug("Screenshot captured for command mode: {Size} bytes", 
-                    _currentScreenshot?.Length ?? 0);
-            }
             
             // Start recording and show overlay IMMEDIATELY
             _dictationBar.ShowRecording("Command Mode");
@@ -695,6 +692,15 @@ public class DictationOrchestrator
             _commandModeSelectedText = null;
             _currentScreenshot = null;
         }
+    }
+    
+    /// <summary>
+    /// Called when user captures a screenshot during recording.
+    /// </summary>
+    private void OnContextScreenshotCaptured(object? sender, byte[] screenshotBytes)
+    {
+        _currentScreenshot = screenshotBytes;
+        _logger.LogInformation("Context screenshot captured via selection: {Size} bytes", screenshotBytes.Length);
     }
 
     private async void OnCommandRecordStop(object? sender, EventArgs e)

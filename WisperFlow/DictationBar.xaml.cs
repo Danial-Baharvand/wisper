@@ -136,6 +136,12 @@ public partial class DictationBar : Window
     public event EventHandler? SettingsRequested;
     
     /// <summary>
+    /// Event fired when user captures a screenshot during recording.
+    /// The byte array contains PNG image data.
+    /// </summary>
+    public event EventHandler<byte[]>? ContextScreenshotCaptured;
+    
+    /// <summary>
     /// Gets the floating browser window instance.
     /// </summary>
     public FloatingBrowserWindow? FloatingBrowser => _floatingBrowser;
@@ -831,34 +837,74 @@ public partial class DictationBar : Window
     }
     
     /// <summary>
-    /// Screenshot button click handler - toggles screenshot context.
+    /// Screenshot button click handler - launches screenshot overlay during recording.
     /// </summary>
     private void ScreenshotButton_Click(object sender, MouseButtonEventArgs e)
     {
-        ScreenshotEnabled = !ScreenshotEnabled;
+        // Prevent event from bubbling to RootGrid (which would trigger drag logic)
+        e.Handled = true;
+
+        // Only allow screenshot capture during recording
+        if (_currentState == BarState.Recording || _currentState == BarState.Speaking)
+        {
+            // Launch asynchronously to let the mouse event finish processing completely
+            Dispatcher.BeginInvoke(new Action(LaunchScreenshotOverlay));
+        }
     }
     
     /// <summary>
-    /// Updates the visual state of the screenshot button.
+    /// Launches the screenshot overlay window for region selection.
+    /// </summary>
+    private void LaunchScreenshotOverlay()
+    {
+        var overlay = new ScreenshotOverlayWindow();
+        overlay.ShowDialog(); // Modal - blocks until closed
+        
+        if (overlay.WasCaptured && overlay.CapturedImage != null)
+        {
+            // Fire event with captured image
+            ContextScreenshotCaptured?.Invoke(this, overlay.CapturedImage);
+            
+            // Update button to show capture was successful
+            UpdateScreenshotButtonCaptured();
+        }
+    }
+    
+    /// <summary>
+    /// Updates the visual state of the screenshot button to show it's active during recording.
     /// </summary>
     private void UpdateScreenshotButtonState()
     {
         Dispatcher.Invoke(() =>
         {
-            if (_screenshotEnabled)
+            if (_currentState == BarState.Recording || _currentState == BarState.Speaking)
             {
-                // Enabled - pink/active color
+                // Active during recording - show as clickable (pink)
                 ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(255, 107, 157)); // #ff6b9d
-                ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(100, 255, 107, 157));
-                ScreenshotButton.ToolTip = "Screenshot Context (enabled)";
+                ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 255, 107, 157));
+                ScreenshotButton.ToolTip = "Capture Screenshot Region";
             }
             else
             {
-                // Disabled - gray
+                // Inactive - gray
                 ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(107, 114, 128)); // #6b7280
                 ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 107, 114, 128));
-                ScreenshotButton.ToolTip = "Screenshot Context (disabled)";
+                ScreenshotButton.ToolTip = "Screenshot (available during recording)";
             }
+        });
+    }
+    
+    /// <summary>
+    /// Updates button to show a screenshot was captured.
+    /// </summary>
+    private void UpdateScreenshotButtonCaptured()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            // Solid pink fill to show capture complete
+            ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(255, 107, 157));
+            ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromRgb(255, 107, 157));
+            ScreenshotButton.ToolTip = "Screenshot Captured ✓";
         });
     }
     
@@ -924,6 +970,9 @@ public partial class DictationBar : Window
         // Stop cursor blink
         _cursorBlinkTimer?.Stop();
         TypingCursor.Visibility = Visibility.Collapsed;
+        
+        // Update screenshot button state
+        UpdateScreenshotButtonState();
     }
     
     private void TransitionToHovered()
@@ -954,6 +1003,9 @@ public partial class DictationBar : Window
         
         // Set bars to pink/recording color
         SetBarsColor("#ff6b9d");
+        
+        // Enable screenshot button
+        UpdateScreenshotButtonState();
     }
     
     private void TransitionToSpeaking()
@@ -964,6 +1016,9 @@ public partial class DictationBar : Window
         // Start cursor blink for transcript
         _cursorBlinkTimer?.Start();
         TypingCursor.Visibility = Visibility.Visible;
+        
+        // Keep screenshot button active
+        UpdateScreenshotButtonState();
     }
     
     private void TransitionToProcessing()
