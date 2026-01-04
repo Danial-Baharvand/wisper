@@ -43,8 +43,11 @@ public partial class ScreenshotOverlayWindow : Window
         Height = virtualScreenHeight;
         WindowState = WindowState.Normal; // Override XAML to use manual sizing
         
-        // Set up full screen rectangle for the overlay
-        FullScreenRect.Rect = new Rect(0, 0, Width, Height);
+        // Initial state: Top mask covers everything
+        MaskTop.Height = Height;
+        MaskBottom.Height = 0;
+        MaskLeft.Width = 0;
+        MaskRight.Width = 0;
         
         // Wire up mouse events
         MouseLeftButtonDown += OnMouseLeftButtonDown;
@@ -76,7 +79,8 @@ public partial class ScreenshotOverlayWindow : Window
         UpdateSelectionVisuals();
     }
     
-    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    // Note: async void is acceptable for event handlers
+    private async void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_isSelecting) return;
         
@@ -89,7 +93,7 @@ public partial class ScreenshotOverlayWindow : Window
         // Only capture if selection is meaningful (at least 10x10 pixels)
         if (rect.Width >= 10 && rect.Height >= 10)
         {
-            CaptureRegion(rect);
+            await CaptureRegionAsync(rect);
         }
         
         Close();
@@ -108,13 +112,27 @@ public partial class ScreenshotOverlayWindow : Window
     {
         var rect = GetSelectionRect();
         
-        // Update the "hole" in the overlay
-        SelectionRect.Rect = rect;
+        // Update 4-rect mask to create the "hole"
+        // Top covers full width above selection
+        MaskTop.Height = Math.Max(0, rect.Top);
+        
+        // Bottom covers full width below selection
+        MaskBottom.Height = Math.Max(0, ActualHeight - rect.Bottom);
+        
+        // Left covers area to the left of selection (between top and bottom)
+        MaskLeft.Height = rect.Height;
+        MaskLeft.Width = Math.Max(0, rect.Left);
+        MaskLeft.Margin = new Thickness(0, rect.Top, 0, 0);
+        
+        // Right covers area to the right of selection (between top and bottom)
+        MaskRight.Height = rect.Height;
+        MaskRight.Width = Math.Max(0, ActualWidth - rect.Right);
+        MaskRight.Margin = new Thickness(0, rect.Top, 0, 0);
         
         // Update selection border
         SelectionBorder.Width = rect.Width;
         SelectionBorder.Height = rect.Height;
-        SelectionBorder.Margin = new Thickness(rect.X, rect.Y, 0, 0);
+        SelectionBorder.Margin = new Thickness(rect.Left, rect.Top, 0, 0);
     }
     
     private Rect GetSelectionRect()
@@ -127,7 +145,7 @@ public partial class ScreenshotOverlayWindow : Window
         return new Rect(x, y, width, height);
     }
     
-    private void CaptureRegion(Rect selectionRect)
+    private async Task CaptureRegionAsync(Rect selectionRect)
     {
         try
         {
@@ -147,24 +165,30 @@ public partial class ScreenshotOverlayWindow : Window
             var width = (int)(selectionRect.Width * dpiScaleX);
             var height = (int)(selectionRect.Height * dpiScaleY);
             
-            // Hide this window briefly to capture what's underneath
+            // Hide this window completely to capture what's underneath
+            // Cannot use Visibility.Hidden for ShowDialog windows, so use Opacity = 0
             Opacity = 0;
             
-            // Small delay to ensure window is hidden
-            System.Threading.Thread.Sleep(50);
+            // Wait for render cycle to complete and window to actually become transparent
+            // This is crucial: Thread.Sleep blocks rendering, Task.Delay allows it
+            await Task.Delay(200);
             
-            using var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            using var graphics = Graphics.FromImage(bitmap);
-            
-            graphics.CopyFromScreen(screenX, screenY, 0, 0, new System.Drawing.Size(width, height));
-            
-            // Convert to PNG bytes
-            using var ms = new MemoryStream();
-            bitmap.Save(ms, ImageFormat.Png);
-            CapturedImage = ms.ToArray();
+            await Task.Run(() =>
+            {
+                using var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                using var graphics = Graphics.FromImage(bitmap);
+                
+                graphics.CopyFromScreen(screenX, screenY, 0, 0, new System.Drawing.Size(width, height));
+                
+                // Convert to PNG bytes
+                using var ms = new MemoryStream();
+                bitmap.Save(ms, ImageFormat.Png);
+                CapturedImage = ms.ToArray();
+            });
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"Screenshot capture failed: {ex.Message}");
             CapturedImage = null;
         }
     }

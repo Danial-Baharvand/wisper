@@ -14,20 +14,11 @@
     
     <Grid x:Name="RootGrid">
         <!-- Dark overlay with hole cut out for selection -->
-        <Path x:Name="OverlayPath" Fill="#80000000" Stretch="None">
-            <Path.Data>
-                <CombinedGeometry GeometryCombineMode="Exclude">
-                    <CombinedGeometry.Geometry1>
-                        <!-- Full screen rectangle -->
-                        <RectangleGeometry x:Name="FullScreenRect"/>
-                    </CombinedGeometry.Geometry1>
-                    <CombinedGeometry.Geometry2>
-                        <!-- Selection rectangle (hole) -->
-                        <RectangleGeometry x:Name="SelectionRect" Rect="0,0,0,0"/>
-                    </CombinedGeometry.Geometry2>
-                </CombinedGeometry>
-            </Path.Data>
-        </Path>
+        <!-- 4 Rectangles for "Hole" Overlay -->
+        <Rectangle x:Name="MaskTop" Fill="#80000000" VerticalAlignment="Top" HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="MaskBottom" Fill="#80000000" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="MaskLeft" Fill="#80000000" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+        <Rectangle x:Name="MaskRight" Fill="#80000000" HorizontalAlignment="Right" VerticalAlignment="Top"/>
         
         <!-- Selection border -->
         <Border x:Name="SelectionBorder"
