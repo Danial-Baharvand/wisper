@@ -10,7 +10,7 @@
         Background="Transparent"
         Topmost="True"
         ShowInTaskbar="False"
-        ResizeMode="CanResizeWithGrip"
+        ResizeMode="NoResize"
         WindowStartupLocation="Manual">
     
     <Window.Resources>
@@ -75,118 +75,207 @@
     </Window.Resources>
     
     <!-- Main container with rounded corners -->
-    <Border x:Name="MainBorder" 
-            Background="#F8121820" 
-            CornerRadius="12" 
-            BorderBrush="#2a2a3e"
-            BorderThickness="1"
-            ClipToBounds="True">
-        <Border.RenderTransform>
-            <TranslateTransform x:Name="ContentTransform" Y="0"/>
-        </Border.RenderTransform>
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="20" Opacity="0.5" ShadowDepth="2"/>
-        </Border.Effect>
+    <Grid>
+        <Border x:Name="MainBorder" 
+                Background="#F8121820" 
+                CornerRadius="16" 
+                BorderBrush="#2a2a3e"
+                BorderThickness="1"
+                ClipToBounds="True">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="ContentTransform" Y="0"/>
+            </Border.RenderTransform>
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="20" Opacity="0.5" ShadowDepth="2"/>
+            </Border.Effect>
+            
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="40"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <!-- Top control strip (draggable) -->
+                <Border Grid.Row="0" Background="#1a1a2e" CornerRadius="16,16,0,0"
+                        MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        
+                        <!-- Provider label with icon -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
+                            <Ellipse x:Name="ProviderIcon" Width="20" Height="20" Margin="0,0,8,0">
+                                <Ellipse.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#10a37f" Offset="0"/>
+                                        <GradientStop Color="#1a7f5a" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock x:Name="ProviderLabel" 
+                                       Text="ChatGPT" 
+                                       Foreground="#e6e6e6" 
+                                       FontFamily="Segoe UI Semibold" 
+                                       FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        
+                        <!-- Loading indicator -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock x:Name="LoadingText" 
+                                       Text="Loading..." 
+                                       Foreground="#6b7280" 
+                                       FontFamily="Segoe UI" 
+                                       FontSize="11"
+                                       Visibility="Collapsed"/>
+                        </StackPanel>
+                        
+                        <!-- Control buttons -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <!-- Separator -->
+                            <Border Width="1" Height="16" Background="#3a3a4e" Margin="4,0" VerticalAlignment="Center"/>
+
+                            <!-- Open in browser button -->
+                            <Button x:Name="OpenExternalButton"
+                                    Style="{StaticResource ControlButtonStyle}"
+                                    ToolTip="Open in default browser"
+                                    Click="OpenExternalButton_Click">
+                                <TextBlock Text="↗" FontSize="14" Foreground="#8892b0"/>
+                            </Button>
+
+                            <!-- Switch account button -->
+                            <Button x:Name="SwitchAccountButton"
+                                    Style="{StaticResource ControlButtonStyle}"
+                                    ToolTip="Switch account (sign out)"
+                                    Click="SwitchAccountButton_Click">
+                                <TextBlock Text="⟳" FontSize="14" Foreground="#8892b0"/>
+                            </Button>
+
+                            <!-- Close button -->
+                            <Button x:Name="CloseButton"
+                                    Style="{StaticResource ControlButtonStyle}"
+                                    ToolTip="Close"
+                                    Click="CloseButton_Click">
+                                <TextBlock Text="✕" FontSize="12" Foreground="#8892b0"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                
+                <!-- WebView2 browsers -->
+                <Border Grid.Row="1" x:Name="WebViewBorder" ClipToBounds="True">
+                    <Grid x:Name="WebViewContainer">
+                        <!-- ChatGPT WebView -->
+                        <wv2:WebView2 x:Name="ChatGPTWebView"
+                                      DefaultBackgroundColor="Transparent"
+                                      Visibility="Visible"/>
+                        <!-- Gemini WebView -->
+                        <wv2:WebView2 x:Name="GeminiWebView"
+                                      DefaultBackgroundColor="Transparent"
+                                      Visibility="Collapsed"/>
+                        
+                        <!-- Corner masks to create rounded corner effect over WebView2 -->
+                        <!-- Bottom-left corner mask -->
+                        <Path HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                              Data="M 0,16 L 0,0 A 16,16 0 0,1 16,16 Z"
+                              Fill="#121820" IsHitTestVisible="False"/>
+                        <!-- Bottom-right corner mask -->
+                        <Path HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                              Data="M 16,16 L 0,16 A 16,16 0 0,1 0,0 L 16,0 Z"
+                              Fill="#121820" IsHitTestVisible="False"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
         
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="40"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            
-            <!-- Top control strip (draggable) -->
-            <Border Grid.Row="0" Background="#1a1a2e" CornerRadius="12,12,0,0"
-                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    
-                    <!-- Provider label with icon -->
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0">
-                        <Ellipse x:Name="ProviderIcon" Width="20" Height="20" Margin="0,0,8,0">
-                            <Ellipse.Fill>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#10a37f" Offset="0"/>
-                                    <GradientStop Color="#1a7f5a" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Ellipse.Fill>
-                        </Ellipse>
-                        <TextBlock x:Name="ProviderLabel" 
-                                   Text="ChatGPT" 
-                                   Foreground="#e6e6e6" 
-                                   FontFamily="Segoe UI Semibold" 
-                                   FontSize="13"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                    
-                    <!-- Loading indicator -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <TextBlock x:Name="LoadingText" 
-                                   Text="Loading..." 
-                                   Foreground="#6b7280" 
-                                   FontFamily="Segoe UI" 
-                                   FontSize="11"
-                                   Visibility="Collapsed"/>
-                    </StackPanel>
-                    
-                    <!-- Control buttons -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <!-- Separator -->
-                        <Border Width="1" Height="16" Background="#3a3a4e" Margin="4,0" VerticalAlignment="Center"/>
-
-                        <!-- Open in browser button -->
-                        <Button x:Name="OpenExternalButton"
-                                Style="{StaticResource ControlButtonStyle}"
-                                ToolTip="Open in default browser"
-                                Click="OpenExternalButton_Click">
-                            <TextBlock Text="↗" FontSize="14" Foreground="#8892b0"/>
-                        </Button>
-
-                        <!-- Switch account button -->
-                        <Button x:Name="SwitchAccountButton"
-                                Style="{StaticResource ControlButtonStyle}"
-                                ToolTip="Switch account (sign out)"
-                                Click="SwitchAccountButton_Click">
-                            <TextBlock Text="⟳" FontSize="14" Foreground="#8892b0"/>
-                        </Button>
-
-                        <!-- Close button -->
-                        <Button x:Name="CloseButton"
-                                Style="{StaticResource ControlButtonStyle}"
-                                ToolTip="Close"
-                                Click="CloseButton_Click">
-                            <TextBlock Text="✕" FontSize="12" Foreground="#8892b0"/>
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Border>
-            
-            <!-- WebView2 browsers - one per provider for instant switching -->
-            <Border Grid.Row="1" CornerRadius="0,0,12,12" ClipToBounds="True">
-                <Grid>
-                    <!-- ChatGPT WebView -->
-                    <wv2:WebView2 x:Name="ChatGPTWebView"
-                                  DefaultBackgroundColor="Transparent"
-                                  Visibility="Visible"/>
-                    <!-- Gemini WebView -->
-                    <wv2:WebView2 x:Name="GeminiWebView"
-                                  DefaultBackgroundColor="Transparent"
-                                  Visibility="Collapsed"/>
-                </Grid>
-            </Border>
-
-            <!-- Resize grip visual -->
-            <Path Grid.Row="1"
-                  Data="M 0,12 L 12,0 M 4,12 L 12,4 M 8,12 L 12,8"
-                  Stroke="#3a3a4e"
-                  StrokeThickness="1"
-                  HorizontalAlignment="Right"
-                  VerticalAlignment="Bottom"
-                  Margin="0,0,4,4"
-                  IsHitTestVisible="False"/>
-        </Grid>
-    </Border>
+        <!-- Invisible resize handles on all corners -->
+        <Rectangle x:Name="ResizeTopLeft" 
+                   Width="16" Height="16" 
+                   Fill="Transparent" 
+                   Cursor="SizeNWSE"
+                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeTopRight" 
+                   Width="16" Height="16" 
+                   Fill="Transparent" 
+                   Cursor="SizeNESW"
+                   HorizontalAlignment="Right" VerticalAlignment="Top"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeBottomLeft" 
+                   Width="16" Height="16" 
+                   Fill="Transparent" 
+                   Cursor="SizeNESW"
+                   HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeBottomRight" 
+                   Width="16" Height="16" 
+                   Fill="Transparent" 
+                   Cursor="SizeNWSE"
+                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        
+        <!-- Invisible resize handles on all sides -->
+        <Rectangle x:Name="ResizeTop" 
+                   Height="8" 
+                   Fill="Transparent" 
+                   Cursor="SizeNS"
+                   HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                   Margin="16,0,16,0"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeBottom" 
+                   Height="8" 
+                   Fill="Transparent" 
+                   Cursor="SizeNS"
+                   HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
+                   Margin="16,0,16,0"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeLeft" 
+                   Width="8" 
+                   Fill="Transparent" 
+                   Cursor="SizeWE"
+                   HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                   Margin="0,16,0,16"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+        <Rectangle x:Name="ResizeRight" 
+                   Width="8" 
+                   Fill="Transparent" 
+                   Cursor="SizeWE"
+                   HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                   Margin="0,16,0,16"
+                   MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
+                   
+        <!-- Floating Open in Browser button -->
+        <Button x:Name="FloatingOpenButton"
+                Width="40" Height="40"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,-10,20"
+                ToolTip="Open in default browser"
+                Click="OpenExternalButton_Click"
+                Cursor="Hand"
+                Opacity="0.9">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="ButtonBorder"
+                            Background="#E0121820"
+                            CornerRadius="20"
+                            BorderBrush="#3a3a4e"
+                            BorderThickness="1">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="8" Opacity="0.5" ShadowDepth="1"/>
+                        </Border.Effect>
+                        <TextBlock Text="↗" FontSize="18" Foreground="#8892b0" 
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ButtonBorder" Property="Background" Value="#E02a2a3e"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
+    </Grid>
 </Window>

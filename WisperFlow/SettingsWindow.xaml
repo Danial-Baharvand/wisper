@@ -718,6 +718,28 @@
                             </StackPanel>
                         </Border>
                         
+                        <!-- AI Chat Sessions Sign Out -->
+                        <Border Background="{StaticResource TertiaryBrush}" CornerRadius="12" Padding="20,16" Margin="0,0,0,16">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <TextBlock Text="🌐" FontSize="18" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="AI Chat Sessions" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="Sign out from embedded AI chat providers to switch accounts or clear sessions."
+                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                           FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Sign Out ChatGPT" Style="{StaticResource SecondaryButton}"
+                                            Padding="16,8" Margin="0,0,12,0"
+                                            Click="SignOutChatGPT_Click"/>
+                                    <Button Content="Sign Out Gemini" Style="{StaticResource SecondaryButton}"
+                                            Padding="16,8"
+                                            Click="SignOutGemini_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        
                         <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="16">
                             <TextBlock Text="Keys are stored securely in Windows Credential Manager. Alternatively, set OPENAI_API_KEY, DEEPGRAM_API_KEY, CEREBRAS_API_KEY, or GROQ_API_KEY environment variables."
                                        Foreground="{StaticResource TextSecondaryBrush}"

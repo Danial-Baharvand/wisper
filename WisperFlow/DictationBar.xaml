@@ -2,7 +2,6 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="WisperFlow"
-        Width="800" Height="400"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -160,7 +159,13 @@
         </Style>
     </Window.Resources>
     
-    <Grid x:Name="RootGrid" VerticalAlignment="Bottom" HorizontalAlignment="Center">
+    <Grid x:Name="RootGrid" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+          MouseLeftButtonDown="RootGrid_MouseLeftButtonDown"
+          MouseMove="RootGrid_MouseMove"
+          MouseLeftButtonUp="RootGrid_MouseLeftButtonUp">
+        <Grid.RenderTransform>
+            <TranslateTransform x:Name="DragTransform" X="0" Y="0"/>
+        </Grid.RenderTransform>
         <StackPanel VerticalAlignment="Bottom">
             
             <!-- Warning Bar (separate layer, appears above transcript) -->

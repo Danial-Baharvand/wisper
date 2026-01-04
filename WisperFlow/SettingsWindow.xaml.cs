@@ -968,6 +968,54 @@ public partial class SettingsWindow : Window
         MessageBox.Show("Groq API key saved securely.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    private void SignOutChatGPT_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            "This will sign you out of ChatGPT in the embedded browser. Continue?",
+            "Sign Out ChatGPT",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        
+        if (result == MessageBoxResult.Yes)
+        {
+            try
+            {
+                BrowserProfileManager.ClearProfile();
+                MessageBox.Show("Signed out of ChatGPT successfully. Re-open the browser to log in again.", 
+                    "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to sign out: {ex.Message}", 
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+    
+    private void SignOutGemini_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show(
+            "This will sign you out of Gemini in the embedded browser. Continue?",
+            "Sign Out Gemini",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        
+        if (result == MessageBoxResult.Yes)
+        {
+            try
+            {
+                BrowserProfileManager.ClearProfile();
+                MessageBox.Show("Signed out of Gemini successfully. Re-open the browser to log in again.", 
+                    "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to sign out: {ex.Message}", 
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         // Gather all settings

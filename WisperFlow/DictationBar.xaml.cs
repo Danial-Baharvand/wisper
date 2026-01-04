@@ -81,6 +81,11 @@ public partial class DictationBar : Window
     // Screenshot context state
     private bool _screenshotEnabled = false;
     
+    // Smooth GPU-based dragging state
+    private Point _dragStartScreenPoint;
+    private Point _visualOffset;
+    private double _savedHorizontalPosition = -1; // -1 means centered
+    
     /// <summary>
     /// Gets or sets the currently selected AI provider (ChatGPT or Gemini).
     /// </summary>
@@ -214,10 +219,190 @@ public partial class DictationBar : Window
     
     private void PositionAtBottom()
     {
-        var screen = SystemParameters.WorkArea;
-        Left = (screen.Width - Width) / 2;
-        Top = screen.Height - Height;
+        // Set window to cover entire work area so we can drag freely with RenderTransform
+        var workArea = SystemParameters.WorkArea;
+        Left = workArea.Left;
+        Top = workArea.Top;
+        Width = workArea.Width;
+        Height = workArea.Height;
     }
+    
+    /// <summary>
+    /// Sets the saved horizontal position from settings.
+    /// Call this before Show() to restore position.
+    /// </summary>
+    public void SetSavedHorizontalPosition(double position)
+    {
+        _savedHorizontalPosition = position;
+        if (IsLoaded && position >= 0)
+        {
+            Left = position;
+        }
+    }
+    
+    /// <summary>
+    /// Gets the current horizontal position for saving to settings.
+    /// Returns -1 if centered (default).
+    /// </summary>
+    public double GetSavedHorizontalPosition()
+    {
+        var screen = SystemParameters.WorkArea;
+        var centeredLeft = (screen.Width - Width) / 2;
+        
+        // If near center, return -1 (default)
+        if (Math.Abs(Left - centeredLeft) < 10)
+        {
+            return -1;
+        }
+        return Left;
+    }
+    
+    /// <summary>
+    /// Event fired when horizontal position changes (for saving to settings).
+    /// </summary>
+    public event EventHandler<double>? HorizontalPositionChanged;
+    
+    #region Smooth GPU-Based Dragging
+    
+    // Window is always fullscreen. Drag uses TranslateTransform to move content.
+    // After release, content snaps back to bottom with ElasticEase.
+    
+    private const double DragThreshold = 5.0;
+    private bool _isPendingDrag = false;
+    private bool _isActiveDrag = false;
+    private bool _isAnimatingSnapBack = false;
+    private Point _mouseDownScreenPoint;
+    
+    /// <summary>
+    /// Gets the real center X position of the bar's visual content.
+    /// </summary>
+    public double RealCenterX
+    {
+        get
+        {
+            var workArea = SystemParameters.WorkArea;
+            // Bar is at bottom-center by default, offset by transform
+            return (workArea.Width / 2) + DragTransform.X;
+        }
+    }
+    
+    private void RootGrid_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_isAnimatingSnapBack) return;
+        
+        // Clear any existing animations
+        DragTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        DragTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        
+        _isPendingDrag = true;
+        _isActiveDrag = false;
+        // Use window-relative position (window is fullscreen, so this equals screen position)
+        _mouseDownScreenPoint = e.GetPosition(this);
+        _dragStartScreenPoint = _mouseDownScreenPoint;
+        
+        RootGrid.CaptureMouse();
+        e.Handled = true;
+    }
+    
+    private void RootGrid_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isPendingDrag && !_isActiveDrag) return;
+        
+        // Use window-relative position (window is fullscreen)
+        var currentPoint = e.GetPosition(this);
+        
+        // Check if threshold exceeded
+        if (_isPendingDrag && !_isActiveDrag)
+        {
+            var deltaX = Math.Abs(currentPoint.X - _mouseDownScreenPoint.X);
+            var deltaY = Math.Abs(currentPoint.Y - _mouseDownScreenPoint.Y);
+            
+            if (deltaX < DragThreshold && deltaY < DragThreshold)
+            {
+                return; // Not enough movement yet
+            }
+            
+            // Activate drag - just update state, window is already fullscreen
+            _isPendingDrag = false;
+            _isActiveDrag = true;
+            _dragStartScreenPoint = _mouseDownScreenPoint;
+            
+            // Store current transform as starting point
+            _visualOffset = new Point(DragTransform.X, DragTransform.Y);
+        }
+        
+        // Update transform based on drag delta
+        if (_isActiveDrag)
+        {
+            var deltaX = currentPoint.X - _dragStartScreenPoint.X;
+            var deltaY = currentPoint.Y - _dragStartScreenPoint.Y;
+            
+            DragTransform.X = _visualOffset.X + deltaX;
+            DragTransform.Y = _visualOffset.Y + deltaY;
+        }
+    }
+    
+    private void RootGrid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        RootGrid.ReleaseMouseCapture();
+        
+        // Click without drag - just reset
+        if (_isPendingDrag && !_isActiveDrag)
+        {
+            _isPendingDrag = false;
+            e.Handled = true;
+            return;
+        }
+        
+        if (!_isActiveDrag) return;
+        
+        _isPendingDrag = false;
+        _isActiveDrag = false;
+        
+        // Animate snap-back: Y to 0, X stays at current position
+        AnimateSnapBack();
+        
+        e.Handled = true;
+    }
+    
+    private void AnimateSnapBack()
+    {
+        _isAnimatingSnapBack = true;
+        
+        // Keep current X position (horizontal stays where user dragged)
+        var finalX = DragTransform.X;
+        
+        // Animate Y back to 0 (bottom)
+        var yAnimation = new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(600),
+            EasingFunction = new ElasticEase 
+            { 
+                EasingMode = EasingMode.EaseOut,
+                Oscillations = 1,
+                Springiness = 4
+            },
+            FillBehavior = FillBehavior.Stop
+        };
+        
+        yAnimation.Completed += (s, args) =>
+        {
+            // Set final transform values (Y=0, X=finalX)
+            DragTransform.Y = 0;
+            DragTransform.X = finalX;
+            
+            _isAnimatingSnapBack = false;
+            
+            // Notify position changed
+            _savedHorizontalPosition = RealCenterX;
+            HorizontalPositionChanged?.Invoke(this, _savedHorizontalPosition);
+        };
+        
+        DragTransform.BeginAnimation(TranslateTransform.YProperty, yAnimation);
+    }
+    
+    #endregion
     
     /// <summary>
     /// Sets the hotkey display text (e.g., "caps", "F1", "ctrl+shift+d").
@@ -523,7 +708,9 @@ public partial class DictationBar : Window
         var needsShow = !_floatingBrowser.IsVisible || _floatingBrowser.IsPreInitializing || _floatingBrowser.Left < -1000;
         if (needsShow)
         {
-            _floatingBrowser.ShowWithAnimation();
+            // Pass DictationBar's real center X so browser aligns horizontally
+            // Use RealCenterX which returns correct position even during drag/animation
+            _floatingBrowser.ShowWithAnimation(RealCenterX);
         }
         
         SelectedProvider = provider;

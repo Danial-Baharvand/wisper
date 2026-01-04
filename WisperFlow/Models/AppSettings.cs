@@ -215,6 +215,13 @@ public class AppSettings
     /// When enabled, captures the active window when hotkey is pressed.
     /// </summary>
     public bool ScreenshotEnabled { get; set; } = false;
+
+    // ===== UI Position Settings =====
+    
+    /// <summary>
+    /// Saved horizontal position of the dictation bar. -1 means centered (default).
+    /// </summary>
+    public double DictationBarHorizontalPosition { get; set; } = -1;
 }
 
 /// <summary>

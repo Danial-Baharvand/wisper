@@ -60,6 +60,15 @@ public partial class FloatingBrowserWindow : Window
     /// Event fired when the window is closing (to notify DictationBar).
     /// </summary>
     public event EventHandler? BrowserClosing;
+    
+    // Resize handling
+    private bool _isResizing = false;
+    private string _resizeDirection = "";
+    private Point _resizeStartPoint;
+    private double _resizeStartWidth;
+    private double _resizeStartHeight;
+    private double _resizeStartLeft;
+    private double _resizeStartTop;
 
     public FloatingBrowserWindow()
     {
@@ -72,6 +81,10 @@ public partial class FloatingBrowserWindow : Window
         Opacity = 0;
         
         Loaded += OnLoaded;
+        
+        // Handle resize mouse events
+        MouseMove += Window_MouseMove;
+        MouseLeftButtonUp += Window_MouseLeftButtonUp;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -84,20 +97,32 @@ public partial class FloatingBrowserWindow : Window
     }
 
     /// <summary>
-    /// Positions the window centered horizontally, above where DictationBar sits.
+    /// Positions the window above where DictationBar sits.
     /// </summary>
-    public void PositionAboveDictationBar()
+    /// <param name="dictationBarCenterX">Optional X coordinate of DictationBar center for horizontal alignment. If -1, center on screen.</param>
+    public void PositionAboveDictationBar(double dictationBarCenterX = -1)
     {
         var screenWidth = SystemParameters.PrimaryScreenWidth;
-        var screenHeight = SystemParameters.PrimaryScreenHeight;
         var workArea = SystemParameters.WorkArea;
         
-        // Center horizontally
-        Left = (screenWidth - Width) / 2;
+        // Calculate horizontal position
+        if (dictationBarCenterX >= 0)
+        {
+            // Center the browser on the DictationBar's center X
+            Left = dictationBarCenterX - (Width / 2);
+        }
+        else
+        {
+            // Default: center on screen
+            Left = (screenWidth - Width) / 2;
+        }
+        
+        // Clamp to screen bounds
+        Left = Math.Max(0, Math.Min(screenWidth - Width, Left));
         
         // Position above DictationBar (which is at the bottom)
-        // DictationBar is approximately 100px from bottom
-        Top = workArea.Bottom - Height - 120;
+        // DictationBar is approximately 50px from bottom
+        Top = workArea.Bottom - Height - 50;
     }
 
     /// <summary>
@@ -742,12 +767,13 @@ public partial class FloatingBrowserWindow : Window
     /// <summary>
     /// Shows the window with fade-in animation.
     /// </summary>
-    public void ShowWithAnimation()
+    /// <param name="dictationBarCenterX">Optional X coordinate of DictationBar center for horizontal alignment. If -1, center on screen.</param>
+    public void ShowWithAnimation(double dictationBarCenterX = -1)
     {
         // Ensure we're starting from the right state
         Opacity = 0;
         
-        PositionAboveDictationBar();
+        PositionAboveDictationBar(dictationBarCenterX);
         Show();
         
         // Ensure window is brought to foreground and activated
@@ -873,6 +899,88 @@ public partial class FloatingBrowserWindow : Window
         else
         {
             DragMove();
+        }
+    }
+    
+    private void ResizeHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            _isResizing = true;
+            _resizeDirection = element.Name;
+            _resizeStartPoint = PointToScreen(e.GetPosition(this));
+            _resizeStartWidth = Width;
+            _resizeStartHeight = Height;
+            _resizeStartLeft = Left;
+            _resizeStartTop = Top;
+            element.CaptureMouse();
+            e.Handled = true;
+        }
+    }
+    
+    private void Window_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isResizing) return;
+        
+        var currentPoint = PointToScreen(e.GetPosition(this));
+        var deltaX = currentPoint.X - _resizeStartPoint.X;
+        var deltaY = currentPoint.Y - _resizeStartPoint.Y;
+        
+        double newWidth = _resizeStartWidth;
+        double newHeight = _resizeStartHeight;
+        double newLeft = _resizeStartLeft;
+        double newTop = _resizeStartTop;
+        
+        switch (_resizeDirection)
+        {
+            case "ResizeTopLeft":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth - deltaX);
+                newHeight = Math.Max(MinHeight, _resizeStartHeight - deltaY);
+                newLeft = _resizeStartLeft + (_resizeStartWidth - newWidth);
+                newTop = _resizeStartTop + (_resizeStartHeight - newHeight);
+                break;
+            case "ResizeTopRight":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth + deltaX);
+                newHeight = Math.Max(MinHeight, _resizeStartHeight - deltaY);
+                newTop = _resizeStartTop + (_resizeStartHeight - newHeight);
+                break;
+            case "ResizeBottomLeft":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth - deltaX);
+                newHeight = Math.Max(MinHeight, _resizeStartHeight + deltaY);
+                newLeft = _resizeStartLeft + (_resizeStartWidth - newWidth);
+                break;
+            case "ResizeBottomRight":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth + deltaX);
+                newHeight = Math.Max(MinHeight, _resizeStartHeight + deltaY);
+                break;
+            case "ResizeTop":
+                newHeight = Math.Max(MinHeight, _resizeStartHeight - deltaY);
+                newTop = _resizeStartTop + (_resizeStartHeight - newHeight);
+                break;
+            case "ResizeBottom":
+                newHeight = Math.Max(MinHeight, _resizeStartHeight + deltaY);
+                break;
+            case "ResizeLeft":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth - deltaX);
+                newLeft = _resizeStartLeft + (_resizeStartWidth - newWidth);
+                break;
+            case "ResizeRight":
+                newWidth = Math.Max(MinWidth, _resizeStartWidth + deltaX);
+                break;
+        }
+        
+        Width = newWidth;
+        Height = newHeight;
+        Left = newLeft;
+        Top = newTop;
+    }
+    
+    private void Window_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isResizing)
+        {
+            _isResizing = false;
+            Mouse.Capture(null);
         }
     }
 
