@@ -165,6 +165,9 @@ public partial class App : Application
         _modelManager = new ModelManager(_loggerFactory!.CreateLogger<ModelManager>());
         _codeContextService = new CodeContextService(_loggerFactory!.CreateLogger<CodeContextService>());
         _serviceFactory = new ServiceFactory(_loggerFactory!, _modelManager, _settingsManager, _codeContextService);
+        
+        // Register note providers
+        Services.NoteProviders.NoteProviderRegistry.Register(new Services.NoteProviders.NotionNoteProvider());
 
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());

@@ -39,6 +39,7 @@ public class DictationOrchestrator
     private bool _commandModeTextInputFocused;  // Whether a text input was focused
     private bool _isStreamingActive;  // Track if Deepgram streaming is active
     private byte[]? _currentScreenshot;  // Screenshot captured at hotkey press (for command mode)
+    private string? _selectedNoteProviderId;  // Note provider selected during recording (for note creation)
 
     public DictationOrchestrator(
         HotkeyManager hotkeyManager,
@@ -74,6 +75,9 @@ public class DictationOrchestrator
         
         // Subscribe to screenshot capture from user selection
         _dictationBar.ContextScreenshotCaptured += OnContextScreenshotCaptured;
+        
+        // Subscribe to note provider selection
+        _dictationBar.NoteProviderClicked += OnNoteProviderClicked;
     }
 
     public void ApplySettings(AppSettings settings)
@@ -702,6 +706,19 @@ public class DictationOrchestrator
         _currentScreenshot = screenshotBytes;
         _logger.LogInformation("Context screenshot captured via selection: {Size} bytes", screenshotBytes.Length);
     }
+    
+    /// <summary>
+    /// Called when user clicks a note provider button.
+    /// If during recording, marks that provider for note creation after polish.
+    /// </summary>
+    private void OnNoteProviderClicked(object? sender, NoteProviderClickEventArgs e)
+    {
+        if (e.DuringRecording)
+        {
+            _selectedNoteProviderId = e.ProviderId;
+            _logger.LogInformation("Note provider selected during recording: {Provider}", e.ProviderId);
+        }
+    }
 
     private async void OnCommandRecordStop(object? sender, EventArgs e)
     {
@@ -832,6 +849,15 @@ public class DictationOrchestrator
                     _logger.LogInformation("Mode: Search (no context)");
                 }
 
+                // If a note provider was selected during recording, create a note and skip AI browser
+                if (!string.IsNullOrEmpty(_selectedNoteProviderId))
+                {
+                    await CreateNoteAsync(searchQuery);
+                    _selectedNoteProviderId = null;  // Reset after use
+                    _dictationBar.Hide();
+                    return;  // Don't open AI provider browser
+                }
+
                 _dictationBar.Hide();
 
                 // Use embedded browser for ChatGPT and Gemini
@@ -872,6 +898,58 @@ public class DictationOrchestrator
             _audioRecorder.DeleteTempFile(audioFilePath);
             if (cts == _currentOperationCts) _currentOperationCts = null;
             cts?.Dispose();
+        }
+    }
+    
+    /// <summary>
+    /// Creates a note in the selected note provider.
+    /// </summary>
+    private async Task CreateNoteAsync(string content)
+    {
+        if (string.IsNullOrEmpty(_selectedNoteProviderId))
+            return;
+            
+        var provider = NoteProviders.NoteProviderRegistry.Get(_selectedNoteProviderId);
+        if (provider == null)
+        {
+            _logger.LogWarning("Note provider not found: {Id}", _selectedNoteProviderId);
+            return;
+        }
+        
+        if (!provider.IsAuthenticated)
+        {
+            _logger.LogWarning("Note provider not authenticated: {Id} - triggering OAuth", _selectedNoteProviderId);
+            
+            // Open floating browser and navigate to OAuth Authorization URL
+            _dictationBar.Hide();
+            await _dictationBar.OpenFloatingBrowserAsync(_selectedNoteProviderId);
+            
+            // Navigate to OAuth URL
+            var authUrl = provider.GetAuthorizationUrl();
+            if (!string.IsNullOrEmpty(authUrl) && _dictationBar.FloatingBrowser != null)
+            {
+                await _dictationBar.FloatingBrowser.NavigateToUrlAsync(authUrl);
+            }
+            return;
+        }
+        
+        try
+        {
+            var title = $"Voice Note - {DateTime.Now:MMM d, yyyy h:mm tt}";
+            var success = await provider.CreateNoteAsync(title, content);
+            
+            if (success)
+            {
+                _logger.LogInformation("Note created in {Provider}: {Title}", _selectedNoteProviderId, title);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to create note in {Provider}", _selectedNoteProviderId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating note in {Provider}", _selectedNoteProviderId);
         }
     }
 

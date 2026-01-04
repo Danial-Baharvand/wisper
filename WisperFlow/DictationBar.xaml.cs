@@ -142,6 +142,12 @@ public partial class DictationBar : Window
     public event EventHandler<byte[]>? ContextScreenshotCaptured;
     
     /// <summary>
+    /// Event fired when a note provider button is clicked during recording.
+    /// Contains the provider ID and whether it was during recording.
+    /// </summary>
+    public event EventHandler<NoteProviderClickEventArgs>? NoteProviderClicked;
+    
+    /// <summary>
     /// Gets the floating browser window instance.
     /// </summary>
     public FloatingBrowserWindow? FloatingBrowser => _floatingBrowser;
@@ -670,6 +676,46 @@ public partial class DictationBar : Window
     private async void GeminiButton_Click(object sender, MouseButtonEventArgs e)
     {
         await ToggleProvider("Gemini");
+    }
+    
+    /// <summary>
+    /// Notion button click handler.
+    /// During recording: signals intent to create a note after transcription.
+    /// Otherwise: opens floating browser at Notion.
+    /// </summary>
+    private async void NotionButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        
+        var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
+        
+        // Fire event for orchestrator to handle
+        NoteProviderClicked?.Invoke(this, new NoteProviderClickEventArgs("Notion", isRecording));
+        
+        if (isRecording)
+        {
+            // Visual feedback - show button as "selected"
+            UpdateNotionButtonCaptured();
+        }
+        else
+        {
+            // Open floating browser at Notion
+            await ToggleProvider("Notion");
+        }
+    }
+    
+    /// <summary>
+    /// Updates Notion button to show it was clicked during recording.
+    /// </summary>
+    private void UpdateNotionButtonCaptured()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            // Solid black fill to show capture complete
+            NotionIndicator.Stroke = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+            NotionIndicator.Fill = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+            NotionButton.ToolTip = "Note will be created ✓";
+        });
     }
     
     /// <summary>

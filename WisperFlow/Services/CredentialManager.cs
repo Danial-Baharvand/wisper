@@ -370,6 +370,79 @@ public static class CredentialManager
         return !string.IsNullOrWhiteSpace(storedKey);
     }
 
+    // ===== Generic Credential Methods =====
+    
+    /// <summary>
+    /// Gets a credential by key name.
+    /// </summary>
+    public static string? GetCredential(string keyName)
+    {
+        if (!CredRead(keyName, CRED_TYPE_GENERIC, 0, out var credentialPtr))
+        {
+            return null;
+        }
+
+        try
+        {
+            var credential = Marshal.PtrToStructure<CREDENTIAL>(credentialPtr);
+            if (credential.CredentialBlob == IntPtr.Zero || credential.CredentialBlobSize == 0)
+            {
+                return null;
+            }
+
+            var credentialBlob = new byte[credential.CredentialBlobSize];
+            Marshal.Copy(credential.CredentialBlob, credentialBlob, 0, (int)credential.CredentialBlobSize);
+            
+            return Encoding.Unicode.GetString(credentialBlob);
+        }
+        finally
+        {
+            CredFree(credentialPtr);
+        }
+    }
+    
+    /// <summary>
+    /// Sets a credential by key name.
+    /// </summary>
+    public static bool SetCredential(string keyName, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            DeleteCredential(keyName);
+            return true;
+        }
+
+        var credentialBlob = Encoding.Unicode.GetBytes(value);
+
+        var credential = new CREDENTIAL
+        {
+            Type = CRED_TYPE_GENERIC,
+            TargetName = keyName,
+            CredentialBlobSize = (uint)credentialBlob.Length,
+            CredentialBlob = Marshal.AllocHGlobal(credentialBlob.Length),
+            Persist = CRED_PERSIST_LOCAL_MACHINE,
+            UserName = "WisperFlow"
+        };
+
+        try
+        {
+            Marshal.Copy(credentialBlob, 0, credential.CredentialBlob, credentialBlob.Length);
+            return CredWrite(ref credential, 0);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(credential.CredentialBlob);
+        }
+    }
+    
+    /// <summary>
+    /// Deletes a credential by key name.
+    /// </summary>
+    public static bool DeleteCredential(string keyName)
+    {
+        return CredDelete(keyName, CRED_TYPE_GENERIC, 0);
+    }
+
     #region Native Methods
 
     private const int CRED_TYPE_GENERIC = 1;

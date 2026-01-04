@@ -23,14 +23,21 @@ public partial class FloatingBrowserWindow : Window
     // Track initialization state per provider
     private bool _chatGPTInitialized = false;
     private bool _geminiInitialized = false;
+    private bool _notionInitialized = false;
     private string _chatGPTUrl = "";
     private string _geminiUrl = "";
+    private string _notionUrl = "";
     
     // Track page load completion (not just navigation start)
     private bool _chatGPTPageReady = false;
     private bool _geminiPageReady = false;
+    private bool _notionPageReady = false;
     private TaskCompletionSource<bool>? _chatGPTPageLoadTcs;
     private TaskCompletionSource<bool>? _geminiPageLoadTcs;
+    private TaskCompletionSource<bool>? _notionPageLoadTcs;
+    
+    // Notion OAuth state
+    private bool _notionOAuthTriggered = false;
     
     // Flag to prevent OnLoaded from repositioning during pre-initialization
     private bool _isPreInitializing = false;
@@ -44,17 +51,29 @@ public partial class FloatingBrowserWindow : Window
     private static readonly Dictionary<string, (Color Start, Color End)> ProviderColors = new()
     {
         ["ChatGPT"] = (Color.FromRgb(16, 163, 127), Color.FromRgb(26, 127, 90)),   // Green
-        ["Gemini"] = (Color.FromRgb(66, 133, 244), Color.FromRgb(52, 103, 194))    // Blue
+        ["Gemini"] = (Color.FromRgb(66, 133, 244), Color.FromRgb(52, 103, 194)),   // Blue
+        ["Notion"] = (Color.FromRgb(0, 0, 0), Color.FromRgb(55, 55, 55))           // Black
     };
 
     public string CurrentProvider => _currentProvider;
-    public string CurrentUrl => _currentProvider == "ChatGPT" ? _chatGPTUrl : _geminiUrl;
+    public string CurrentUrl => _currentProvider switch
+    {
+        "ChatGPT" => _chatGPTUrl,
+        "Gemini" => _geminiUrl,
+        "Notion" => _notionUrl,
+        _ => ""
+    };
     
     /// <summary>
     /// Gets the currently active WebView2 control.
     /// </summary>
-    private Microsoft.Web.WebView2.Wpf.WebView2 ActiveWebView => 
-        _currentProvider == "ChatGPT" ? ChatGPTWebView : GeminiWebView;
+    private Microsoft.Web.WebView2.Wpf.WebView2 ActiveWebView => _currentProvider switch
+    {
+        "ChatGPT" => ChatGPTWebView,
+        "Gemini" => GeminiWebView,
+        "Notion" => NotionWebView,
+        _ => ChatGPTWebView
+    };
 
     /// <summary>
     /// Event fired when the window is closing (to notify DictationBar).
@@ -191,8 +210,21 @@ public partial class FloatingBrowserWindow : Window
     /// </summary>
     private async Task InitializeProviderWebViewAsync(string provider)
     {
-        var webView = provider == "ChatGPT" ? ChatGPTWebView : GeminiWebView;
-        var isInitialized = provider == "ChatGPT" ? _chatGPTInitialized : _geminiInitialized;
+        var webView = provider switch
+        {
+            "ChatGPT" => ChatGPTWebView,
+            "Gemini" => GeminiWebView,
+            "Notion" => NotionWebView,
+            _ => ChatGPTWebView
+        };
+        
+        var isInitialized = provider switch
+        {
+            "ChatGPT" => _chatGPTInitialized,
+            "Gemini" => _geminiInitialized,
+            "Notion" => _notionInitialized,
+            _ => false
+        };
         
         if (isInitialized) 
         {
@@ -207,6 +239,12 @@ public partial class FloatingBrowserWindow : Window
         webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
         
+        // Set mobile User-Agent for Notion to get mobile-friendly UI
+        if (provider == "Notion")
+        {
+            webView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
+        }
+        
         // Handle navigation events
         webView.CoreWebView2.NavigationStarting += (s, e) => OnNavigationStarting(provider, e);
         webView.CoreWebView2.NavigationCompleted += (s, e) => OnNavigationCompleted(provider, e);
@@ -214,25 +252,35 @@ public partial class FloatingBrowserWindow : Window
         
         // Create TaskCompletionSource to wait for page load
         var tcs = new TaskCompletionSource<bool>();
-        if (provider == "ChatGPT")
-            _chatGPTPageLoadTcs = tcs;
-        else
-            _geminiPageLoadTcs = tcs;
+        switch (provider)
+        {
+            case "ChatGPT": _chatGPTPageLoadTcs = tcs; break;
+            case "Gemini": _geminiPageLoadTcs = tcs; break;
+            case "Notion": _notionPageLoadTcs = tcs; break;
+        }
         
-        // Navigate to provider home
-        var url = BrowserProfileManager.GetProviderUrl(provider);
+        // Navigate to provider home (Notion starts at login)
+        var url = provider == "Notion" 
+            ? "https://www.notion.so/login" 
+            : BrowserProfileManager.GetProviderUrl(provider);
         webView.CoreWebView2.Navigate(url);
         
-        // Mark as initialized (WebView is ready, navigation started)
-        if (provider == "ChatGPT")
+        // Mark as initialized
+        switch (provider)
         {
-            _chatGPTInitialized = true;
-            _chatGPTUrl = url;
-        }
-        else
-        {
-            _geminiInitialized = true;
-            _geminiUrl = url;
+            case "ChatGPT":
+                _chatGPTInitialized = true;
+                _chatGPTUrl = url;
+                break;
+            case "Gemini":
+                _geminiInitialized = true;
+                _geminiUrl = url;
+                break;
+            case "Notion":
+                _notionInitialized = true;
+                _notionUrl = url;
+                _notionOAuthTriggered = false; // Reset OAuth state
+                break;
         }
         
         // Wait for navigation to complete (with timeout)
@@ -291,6 +339,25 @@ public partial class FloatingBrowserWindow : Window
     {
         ChatGPTWebView.Visibility = _currentProvider == "ChatGPT" ? Visibility.Visible : Visibility.Collapsed;
         GeminiWebView.Visibility = _currentProvider == "Gemini" ? Visibility.Visible : Visibility.Collapsed;
+        NotionWebView.Visibility = _currentProvider == "Notion" ? Visibility.Visible : Visibility.Collapsed;
+    }
+    
+    /// <summary>
+    /// Navigates the current provider's WebView to the specified URL.
+    /// Ensures WebView2 is initialized first.
+    /// </summary>
+    public async Task NavigateToUrlAsync(string url)
+    {
+        // Ensure WebView2 is initialized
+        if (ActiveWebView.CoreWebView2 == null)
+        {
+            await ActiveWebView.EnsureCoreWebView2Async(_webViewEnvironment);
+        }
+        
+        if (ActiveWebView?.CoreWebView2 != null)
+        {
+            ActiveWebView.CoreWebView2.Navigate(url);
+        }
     }
 
     /// <summary>
@@ -812,25 +879,69 @@ public partial class FloatingBrowserWindow : Window
         LoadingText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void OnNavigationStarting(string provider, CoreWebView2NavigationStartingEventArgs e)
+    private async void OnNavigationStarting(string provider, CoreWebView2NavigationStartingEventArgs e)
     {
         // Update the URL for the specific provider and reset page ready state
-        if (provider == "ChatGPT")
+        switch (provider)
         {
-            _chatGPTUrl = e.Uri;
-            _chatGPTPageReady = false;
-            _chatGPTPageLoadTcs = new TaskCompletionSource<bool>();
-        }
-        else
-        {
-            _geminiUrl = e.Uri;
-            _geminiPageReady = false;
-            _geminiPageLoadTcs = new TaskCompletionSource<bool>();
+            case "ChatGPT":
+                _chatGPTUrl = e.Uri;
+                _chatGPTPageReady = false;
+                _chatGPTPageLoadTcs = new TaskCompletionSource<bool>();
+                break;
+            case "Gemini":
+                _geminiUrl = e.Uri;
+                _geminiPageReady = false;
+                _geminiPageLoadTcs = new TaskCompletionSource<bool>();
+                break;
+            case "Notion":
+                _notionUrl = e.Uri;
+                _notionPageReady = false;
+                _notionPageLoadTcs = new TaskCompletionSource<bool>();
+                
+                // Intercept OAuth callback redirect
+                if (e.Uri.StartsWith("https://localhost/callback", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Cancel = true;
+                    await HandleNotionOAuthCallbackAsync(e.Uri);
+                    return;
+                }
+                break;
         }
         
         // Only show loading for current provider
         if (provider == _currentProvider)
             ShowLoading(true);
+    }
+    
+    /// <summary>
+    /// Handles Notion OAuth callback - extracts code and exchanges for token.
+    /// </summary>
+    private async Task HandleNotionOAuthCallbackAsync(string callbackUrl)
+    {
+        try
+        {
+            var notionProvider = Services.NoteProviders.NoteProviderRegistry.Get("Notion") 
+                as Services.NoteProviders.NotionNoteProvider;
+            
+            if (notionProvider == null) return;
+            
+            var code = notionProvider.ExtractAuthCode(callbackUrl);
+            if (string.IsNullOrEmpty(code)) return;
+            
+            // Exchange code for token
+            var success = await notionProvider.ExchangeCodeAsync(code);
+            
+            // Navigate back to Notion dashboard
+            if (success && NotionWebView?.CoreWebView2 != null)
+            {
+                NotionWebView.CoreWebView2.Navigate("https://www.notion.so");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Notion OAuth error: {ex.Message}");
+        }
     }
 
     private void OnNavigationCompleted(string provider, CoreWebView2NavigationCompletedEventArgs e)
@@ -840,16 +951,66 @@ public partial class FloatingBrowserWindow : Window
             ShowLoading(false);
         
         // Mark page as ready and signal any waiters
-        if (provider == "ChatGPT")
+        switch (provider)
         {
-            _chatGPTPageReady = true;
-            _chatGPTPageLoadTcs?.TrySetResult(e.IsSuccess);
+            case "ChatGPT":
+                _chatGPTPageReady = true;
+                _chatGPTPageLoadTcs?.TrySetResult(e.IsSuccess);
+                break;
+            case "Gemini":
+                _geminiPageReady = true;
+                _geminiPageLoadTcs?.TrySetResult(e.IsSuccess);
+                break;
+            case "Notion":
+                _notionPageReady = true;
+                _notionPageLoadTcs?.TrySetResult(e.IsSuccess);
+                
+                // Check if user is on dashboard (logged in) and OAuth not yet triggered
+                if (!_notionOAuthTriggered && IsNotionDashboard(_notionUrl))
+                {
+                    TriggerNotionOAuth();
+                }
+                break;
         }
-        else
+    }
+    
+    /// <summary>
+    /// Checks if URL is Notion dashboard (user is logged in).
+    /// </summary>
+    private bool IsNotionDashboard(string url)
+    {
+        var notionProvider = Services.NoteProviders.NoteProviderRegistry.Get("Notion") 
+            as Services.NoteProviders.NotionNoteProvider;
+        return notionProvider?.IsDashboardUrl(url) ?? false;
+    }
+    
+    /// <summary>
+    /// Triggers the Notion OAuth authorization flow.
+    /// </summary>
+    private void TriggerNotionOAuth()
+    {
+        var notionProvider = Services.NoteProviders.NoteProviderRegistry.Get("Notion") 
+            as Services.NoteProviders.NotionNoteProvider;
+        
+        if (notionProvider == null) return;
+        
+        // If already authenticated, no need to trigger OAuth
+        if (notionProvider.IsAuthenticated)
         {
-            _geminiPageReady = true;
-            _geminiPageLoadTcs?.TrySetResult(e.IsSuccess);
+            _notionOAuthTriggered = true;
+            return;
         }
+        
+        var authUrl = notionProvider.GetAuthorizationUrl();
+        if (string.IsNullOrEmpty(authUrl)) 
+        {
+            // OAuth not configured - show message
+            System.Diagnostics.Debug.WriteLine("Notion OAuth not configured. Please set Client ID and Secret.");
+            return;
+        }
+        
+        _notionOAuthTriggered = true;
+        NotionWebView?.CoreWebView2?.Navigate(authUrl);
     }
 
     private async void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)

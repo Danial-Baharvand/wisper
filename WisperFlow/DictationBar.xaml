@@ -419,6 +419,34 @@
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
+                    
+                    <!-- Notion Button -->
+                    <Border x:Name="NotionButton" 
+                            Style="{StaticResource ProviderButtonStyle}"
+                            Background="#E6121820"
+                            ToolTip="Notion"
+                            MouseLeftButtonDown="NotionButton_Click">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                        </Border.Effect>
+                        <!-- Notion icon - black circle with "N" -->
+                        <Grid>
+                            <Ellipse x:Name="NotionIndicator" 
+                                     Width="20" Height="20"
+                                     StrokeThickness="2"
+                                     Stroke="#000000">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#000000" Opacity="0.2"/>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock Text="N" 
+                                       Foreground="#000000" 
+                                       FontFamily="Segoe UI Semibold" 
+                                       FontSize="11"
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </StackPanel>
         </StackPanel>
