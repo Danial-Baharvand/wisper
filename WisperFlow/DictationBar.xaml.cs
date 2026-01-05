@@ -752,20 +752,84 @@ public partial class DictationBar : Window
     
     /// <summary>
     /// Updates the visual selection state of provider buttons.
+    /// Shows animated ring and glow for selected provider.
     /// </summary>
     private void UpdateProviderButtonSelection()
     {
-        // ChatGPT button - filled when selected
+        // ChatGPT selection state
         if (_selectedProvider == "ChatGPT")
         {
-            ChatGPTIndicator.Fill = new SolidColorBrush(Color.FromRgb(16, 163, 127));
-            GeminiIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 66, 133, 244)); // 0.2 opacity
+            // Show ChatGPT ring and glow
+            ChatGPTRing.Opacity = 1;
+            ChatGPTGlow.Opacity = 0.6;
+            AnimateRingPulse(ChatGPTRing);
+            
+            // Hide other rings
+            GeminiRing.Opacity = 0;
+            GeminiGlow.Opacity = 0;
         }
-        else
+        else // Gemini selected
         {
-            ChatGPTIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 16, 163, 127)); // 0.2 opacity
-            GeminiIndicator.Fill = new SolidColorBrush(Color.FromRgb(66, 133, 244));
+            // Show Gemini ring and glow
+            GeminiRing.Opacity = 1;
+            GeminiGlow.Opacity = 0.6;
+            AnimateRingPulse(GeminiRing);
+            
+            // Hide ChatGPT ring
+            ChatGPTRing.Opacity = 0;
+            ChatGPTGlow.Opacity = 0;
         }
+    }
+    
+    /// <summary>
+    /// Animates a selection ring with a subtle rotating gradient effect.
+    /// </summary>
+    private void AnimateRingPulse(Ellipse ring)
+    {
+        var pulseAnimation = new DoubleAnimation
+        {
+            From = 0.6,
+            To = 1.0,
+            Duration = TimeSpan.FromSeconds(1.2),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+        };
+        ring.BeginAnimation(OpacityProperty, pulseAnimation);
+    }
+    
+    /// <summary>
+    /// Plays a bounce animation on a button when clicked.
+    /// </summary>
+    private void PlayButtonBounce(Border button)
+    {
+        var scaleTransform = button.RenderTransform as ScaleTransform;
+        if (scaleTransform == null)
+        {
+            scaleTransform = new ScaleTransform(1, 1);
+            button.RenderTransform = scaleTransform;
+            button.RenderTransformOrigin = new Point(0.5, 0.5);
+        }
+        
+        var bounceX = new DoubleAnimation
+        {
+            From = 1.0,
+            To = 1.15,
+            Duration = TimeSpan.FromMilliseconds(100),
+            AutoReverse = true,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        var bounceY = new DoubleAnimation
+        {
+            From = 1.0,
+            To = 1.15,
+            Duration = TimeSpan.FromMilliseconds(100),
+            AutoReverse = true,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, bounceX);
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, bounceY);
     }
     
     /// <summary>
@@ -774,6 +838,7 @@ public partial class DictationBar : Window
     private async void ChatGPTButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        PlayButtonBounce(ChatGPTButton);
         await ToggleProvider("ChatGPT");
     }
     
@@ -783,6 +848,7 @@ public partial class DictationBar : Window
     private async void GeminiButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        PlayButtonBounce(GeminiButton);
         await ToggleProvider("Gemini");
     }
     
@@ -820,8 +886,7 @@ public partial class DictationBar : Window
         Dispatcher.Invoke(() =>
         {
             // Solid black fill to show capture complete
-            NotionIndicator.Stroke = new SolidColorBrush(Color.FromRgb(0, 0, 0));
-            NotionIndicator.Fill = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+            NotionIndicator.Background = new SolidColorBrush(Color.FromRgb(0, 0, 0));
             NotionButton.ToolTip = "Note will be created ✓";
         });
     }

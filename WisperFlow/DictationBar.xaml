@@ -149,14 +149,86 @@
                            To="20" Duration="0:0:0.15"/>
         </Storyboard>
         
-        <!-- Provider button style -->
+        <!-- Provider button style with animated selection state -->
         <Style x:Key="ProviderButtonStyle" TargetType="Border">
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="CornerRadius" Value="14"/>
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="CornerRadius" Value="16"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="1" ScaleY="1"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX"
+                                               To="1.1" Duration="0:0:0.15">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY"
+                                               To="1.1" Duration="0:0:0.15">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                    <Trigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX"
+                                               To="1" Duration="0:0:0.15">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY"
+                                               To="1" Duration="0:0:0.15">
+                                    <DoubleAnimation.EasingFunction>
+                                        <CubicEase EasingMode="EaseOut"/>
+                                    </DoubleAnimation.EasingFunction>
+                                </DoubleAnimation>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.ExitActions>
+                </Trigger>
+            </Style.Triggers>
         </Style>
+        
+        <!-- Icon selection pulse animation (applied programmatically) -->
+        <Storyboard x:Key="IconSelectPulseAnimation" RepeatBehavior="Forever">
+            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                           From="0.6" To="1" Duration="0:0:0.8" AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <SineEase EasingMode="EaseInOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        
+        <!-- Icon bounce animation for selection -->
+        <Storyboard x:Key="IconBounceAnimation">
+            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX"
+                           From="1" To="1.2" Duration="0:0:0.1" AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY"
+                           From="1" To="1.2" Duration="0:0:0.1" AutoReverse="True">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
     </Window.Resources>
     
     <Grid x:Name="RootGrid" VerticalAlignment="Bottom" HorizontalAlignment="Center"
@@ -272,7 +344,7 @@
                         <TranslateTransform x:Name="LeftButtonsTransform" X="20"/>
                     </StackPanel.RenderTransform>
                     
-                    <!-- Settings Button -->
+                    <!-- Settings Button with Modern Gear Icon -->
                     <Border x:Name="SettingsButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
@@ -280,51 +352,61 @@
                             Margin="0,0,4,0"
                             MouseLeftButtonDown="SettingsButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect Color="#8892b0" BlurRadius="6" Opacity="0.2" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- Settings gear icon -->
                         <Grid>
-                            <Ellipse Width="20" Height="20"
-                                     StrokeThickness="2"
-                                     Stroke="#8892b0">
+                            <!-- Gradient background circle -->
+                            <Ellipse Width="24" Height="24">
                                 <Ellipse.Fill>
-                                    <SolidColorBrush Color="#8892b0" Opacity="0.2"/>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4a5568" Offset="0"/>
+                                        <GradientStop Color="#2d3748" Offset="1"/>
+                                    </LinearGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <TextBlock Text="⚙" 
-                                       Foreground="#8892b0" 
-                                       FontSize="11"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- Gear icon path -->
+                            <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path Fill="#e2e8f0" Data="M8,2 L9,4 L11,4 L12,2 L14,4 L12,6 L13,8 L14,8 L14,10 L12,10 L11,12 L12,14 L10,14 L8,12 L6,14 L4,14 L5,12 L4,10 L2,10 L2,8 L4,8 L4,6 L2,4 L4,2 L6,4 L8,2 Z M8,5 A3,3 0 1,0 8,11 A3,3 0 1,0 8,5"/>
+                            </Viewbox>
                         </Grid>
                     </Border>
                     
-                    <!-- Screenshot Context Button -->
+                    <!-- Screenshot Context Button with Camera Icon -->
                     <Border x:Name="ScreenshotButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
-                            ToolTip="Screenshot Context (disabled)"
+                            ToolTip="Screenshot Context"
                             Margin="0,0,4,0"
                             MouseLeftButtonDown="ScreenshotButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect x:Name="ScreenshotGlow" Color="#9f7aea" BlurRadius="6" Opacity="0" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- Camera/Screenshot icon -->
                         <Grid>
-                            <Ellipse x:Name="ScreenshotIndicator" 
-                                     Width="20" Height="20"
+                            <!-- Selection ring for active state -->
+                            <Ellipse x:Name="ScreenshotRing" 
+                                     Width="30" Height="30"
                                      StrokeThickness="2"
-                                     Stroke="#6b7280">
+                                     Opacity="0">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#9f7aea" Offset="0"/>
+                                        <GradientStop Color="#667eea" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
+                            </Ellipse>
+                            <!-- Gradient background circle -->
+                            <Ellipse x:Name="ScreenshotIndicator" Width="24" Height="24">
                                 <Ellipse.Fill>
-                                    <SolidColorBrush Color="#6b7280" Opacity="0.2"/>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4a5568" Offset="0"/>
+                                        <GradientStop Color="#2d3748" Offset="1"/>
+                                    </LinearGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <TextBlock x:Name="ScreenshotIcon" 
-                                       Text="📷" 
-                                       Foreground="#6b7280" 
-                                       FontSize="10"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- Camera icon path -->
+                            <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path x:Name="ScreenshotIconPath" Fill="#9ca3af" Data="M4,4 L6,2 L10,2 L12,4 L14,4 L14,12 L2,12 L2,4 Z M8,5 A2.5,2.5 0 1,0 8,10 A2.5,2.5 0 1,0 8,5"/>
+                            </Viewbox>
                         </Grid>
                     </Border>
                 </StackPanel>
@@ -365,114 +447,176 @@
                         <TranslateTransform x:Name="ProviderButtonsTransform" X="-20"/>
                     </StackPanel.RenderTransform>
                     
-                    <!-- ChatGPT Button -->
+                    <!-- ChatGPT Button with Official OpenAI-style Icon -->
                     <Border x:Name="ChatGPTButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
                             ToolTip="ChatGPT"
                             MouseLeftButtonDown="ChatGPTButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect x:Name="ChatGPTGlow" Color="#10a37f" BlurRadius="8" Opacity="0" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- ChatGPT icon - green circle with stylized "G" -->
                         <Grid>
-                            <Ellipse x:Name="ChatGPTIndicator" 
-                                     Width="20" Height="20"
+                            <!-- Animated selection ring (outer glow) -->
+                            <Ellipse x:Name="ChatGPTRing" 
+                                     Width="30" Height="30"
                                      StrokeThickness="2"
-                                     Stroke="#10a37f">
+                                     Opacity="0">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#10a37f" Offset="0"/>
+                                        <GradientStop Color="#1ed29d" Offset="0.5"/>
+                                        <GradientStop Color="#10a37f" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
+                            </Ellipse>
+                            <!-- Icon background with gradient -->
+                            <Ellipse x:Name="ChatGPTIndicator" 
+                                     Width="24" Height="24">
                                 <Ellipse.Fill>
-                                    <SolidColorBrush Color="#10a37f" Opacity="0.2"/>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#10a37f" Offset="0"/>
+                                        <GradientStop Color="#0d8c6b" Offset="1"/>
+                                    </LinearGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <TextBlock Text="G" 
-                                       Foreground="#10a37f" 
-                                       FontFamily="Segoe UI Semibold" 
-                                       FontSize="11"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- OpenAI hexagonal flower icon -->
+                            <Viewbox Width="12" Height="12" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Canvas Width="24" Height="24">
+                                    <!-- Simplified OpenAI logo - hexagonal flower pattern -->
+                                    <Path Fill="White" Data="M12,1 L15,5 L20,5 L18,10 L21,15 L16,16 L14,21 L10,17 L5,19 L6,14 L1,11 L6,8 L6,3 L11,5 Z"/>
+                                </Canvas>
+                            </Viewbox>
                         </Grid>
                     </Border>
                     
-                    <!-- Gemini Button -->
+                    <!-- Gemini Button with Google-style gradient Icon -->
                     <Border x:Name="GeminiButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
                             ToolTip="Gemini"
                             MouseLeftButtonDown="GeminiButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect x:Name="GeminiGlow" Color="#4285f4" BlurRadius="8" Opacity="0" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- Gemini icon - blue circle with sparkle -->
                         <Grid>
-                            <Ellipse x:Name="GeminiIndicator" 
-                                     Width="20" Height="20"
+                            <!-- Animated selection ring -->
+                            <Ellipse x:Name="GeminiRing" 
+                                     Width="30" Height="30"
                                      StrokeThickness="2"
-                                     Stroke="#4285f4">
+                                     Opacity="0">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4285f4" Offset="0"/>
+                                        <GradientStop Color="#ea4335" Offset="0.25"/>
+                                        <GradientStop Color="#fbbc05" Offset="0.5"/>
+                                        <GradientStop Color="#34a853" Offset="0.75"/>
+                                        <GradientStop Color="#4285f4" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
+                            </Ellipse>
+                            <!-- Multi-color gradient background -->
+                            <Ellipse x:Name="GeminiIndicator" 
+                                     Width="24" Height="24">
                                 <Ellipse.Fill>
-                                    <SolidColorBrush Color="#4285f4" Opacity="0.2"/>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4285f4" Offset="0"/>
+                                        <GradientStop Color="#9b72cb" Offset="0.5"/>
+                                        <GradientStop Color="#d96570" Offset="1"/>
+                                    </LinearGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <TextBlock Text="✦" 
-                                       Foreground="#4285f4" 
-                                       FontSize="12"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- Gemini sparkle star icon -->
+                            <Viewbox Width="12" Height="12" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Canvas Width="16" Height="16">
+                                    <!-- 4-point sparkle star -->
+                                    <Path Fill="White" Data="M8,0 C8,4 10,6 14,8 C10,10 8,12 8,16 C8,12 6,10 2,8 C6,6 8,4 8,0 Z"/>
+                                </Canvas>
+                            </Viewbox>
                         </Grid>
                     </Border>
                     
-                    <!-- Notion Button -->
+                    <!-- Notion Button with Official-style Icon -->
                     <Border x:Name="NotionButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
                             ToolTip="Notion"
                             MouseLeftButtonDown="NotionButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect x:Name="NotionGlow" Color="#FFFFFF" BlurRadius="8" Opacity="0" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- Notion icon - black circle with "N" -->
                         <Grid>
-                            <Ellipse x:Name="NotionIndicator" 
-                                     Width="20" Height="20"
+                            <!-- Animated selection ring -->
+                            <Ellipse x:Name="NotionRing" 
+                                     Width="30" Height="30"
                                      StrokeThickness="2"
-                                     Stroke="#000000">
-                                <Ellipse.Fill>
-                                    <SolidColorBrush Color="#000000" Opacity="0.2"/>
-                                </Ellipse.Fill>
+                                     Opacity="0">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#FFFFFF" Offset="0"/>
+                                        <GradientStop Color="#b3b3b3" Offset="0.5"/>
+                                        <GradientStop Color="#FFFFFF" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
                             </Ellipse>
-                            <TextBlock Text="N" 
-                                       Foreground="#000000" 
-                                       FontFamily="Segoe UI Semibold" 
-                                       FontSize="11"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- Notion-style rounded square background -->
+                            <Border x:Name="NotionIndicator" 
+                                    Width="22" Height="22" 
+                                    CornerRadius="5"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#FFFFFF" Offset="0"/>
+                                        <GradientStop Color="#e0e0e0" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <!-- Notion page icon -->
+                            <Viewbox Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path Fill="#191919" Data="M4,2 L12,2 L14,4 L14,14 L4,14 Z M6,5 L12,5 M6,7 L12,7 M6,9 L10,9" 
+                                      StrokeThickness="1" Stroke="#191919"/>
+                            </Viewbox>
                         </Grid>
                     </Border>
                     
-                    <!-- Google Tasks Button -->
+                    <!-- Google Tasks Button with Official-style Icon -->
                     <Border x:Name="GoogleTasksButton" 
                             Style="{StaticResource ProviderButtonStyle}"
                             Background="#E6121820"
                             ToolTip="Google Tasks"
                             MouseLeftButtonDown="GoogleTasksButton_Click">
                         <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                            <DropShadowEffect x:Name="GoogleTasksGlow" Color="#4285F4" BlurRadius="8" Opacity="0" ShadowDepth="0"/>
                         </Border.Effect>
-                        <!-- Google Tasks icon - blue circle with checkmark -->
                         <Grid>
-                            <Ellipse x:Name="GoogleTasksIndicator" 
-                                     Width="20" Height="20"
+                            <!-- Animated selection ring -->
+                            <Ellipse x:Name="GoogleTasksRing" 
+                                     Width="30" Height="30"
                                      StrokeThickness="2"
-                                     Stroke="#4285F4">
+                                     Opacity="0">
+                                <Ellipse.Stroke>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4285F4" Offset="0"/>
+                                        <GradientStop Color="#5e9cf5" Offset="0.5"/>
+                                        <GradientStop Color="#4285F4" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Ellipse.Stroke>
+                            </Ellipse>
+                            <!-- Google blue gradient circle -->
+                            <Ellipse x:Name="GoogleTasksIndicator" 
+                                     Width="24" Height="24">
                                 <Ellipse.Fill>
-                                    <SolidColorBrush Color="#4285F4" Opacity="0.2"/>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#4285F4" Offset="0"/>
+                                        <GradientStop Color="#1a73e8" Offset="1"/>
+                                    </LinearGradientBrush>
                                 </Ellipse.Fill>
                             </Ellipse>
-                            <TextBlock Text="✓" 
-                                       Foreground="#4285F4" 
-                                       FontFamily="Segoe UI Semibold" 
-                                       FontSize="12"
-                                       HorizontalAlignment="Center" 
-                                       VerticalAlignment="Center"/>
+                            <!-- Checkmark icon -->
+                            <Viewbox Width="12" Height="12" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Path Stroke="White" StrokeThickness="2.5" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      Data="M3,8 L7,12 L13,4"/>
+                            </Viewbox>
                         </Grid>
                     </Border>
                 </StackPanel>
