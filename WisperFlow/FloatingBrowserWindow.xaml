@@ -271,35 +271,6 @@
                    Margin="0,16,0,16"
                    MouseLeftButtonDown="ResizeHandle_MouseLeftButtonDown"/>
                    
-        <!-- Floating Open in Browser button -->
-        <Button x:Name="FloatingOpenButton"
-                Width="40" Height="40"
-                HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Margin="0,0,-10,20"
-                ToolTip="Open in default browser"
-                Click="OpenExternalButton_Click"
-                Cursor="Hand"
-                Opacity="0.9">
-            <Button.Template>
-                <ControlTemplate TargetType="Button">
-                    <Border x:Name="ButtonBorder"
-                            Background="#E0121820"
-                            CornerRadius="20"
-                            BorderBrush="#3a3a4e"
-                            BorderThickness="1">
-                        <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="8" Opacity="0.5" ShadowDepth="1"/>
-                        </Border.Effect>
-                        <TextBlock Text="↗" FontSize="18" Foreground="#8892b0" 
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="ButtonBorder" Property="Background" Value="#E02a2a3e"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Button.Template>
-        </Button>
+
     </Grid>
 </Window>

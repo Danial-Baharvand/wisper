@@ -904,11 +904,26 @@ public partial class FloatingBrowserWindow : Window
         // LoadingText was removed, using UrlTextBox/Overlay instead if needed
     }
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
         if (ActiveWebView?.CoreWebView2 != null)
         {
+            // Normal refresh if CoreWebView2 is available
             ActiveWebView.CoreWebView2.Reload();
+        }
+        else
+        {
+            // CoreWebView2 not initialized - try to initialize it
+            Debug.WriteLine($"RefreshButton: CoreWebView2 is null for {_currentProvider}, attempting initialization...");
+            try
+            {
+                await InitializeProviderWebViewAsync(_currentProvider);
+                UrlTextBox.Text = CurrentUrl;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RefreshButton: Failed to initialize {_currentProvider}: {ex.Message}");
+            }
         }
     }
 
@@ -1278,6 +1293,20 @@ public partial class FloatingBrowserWindow : Window
     private void OpenExternalButton_Click(object sender, RoutedEventArgs e)
     {
         var currentUrl = CurrentUrl;
+        
+        // If CurrentUrl is empty, use the provider's home URL as fallback
+        if (string.IsNullOrEmpty(currentUrl))
+        {
+            currentUrl = _currentProvider switch
+            {
+                "ChatGPT" => BrowserProfileManager.GetProviderUrl("ChatGPT"),
+                "Gemini" => BrowserProfileManager.GetProviderUrl("Gemini"),
+                "Notion" => "https://www.notion.so",
+                "GoogleTasks" => "https://tasks.google.com",
+                _ => ""
+            };
+        }
+        
         if (!string.IsNullOrEmpty(currentUrl))
         {
             try
@@ -1288,7 +1317,10 @@ public partial class FloatingBrowserWindow : Window
                     UseShellExecute = true
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"OpenExternalButton: Failed to open URL {currentUrl}: {ex.Message}");
+            }
         }
     }
 
