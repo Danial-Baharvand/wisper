@@ -255,7 +255,7 @@ public partial class DictationBar : Window
             source?.AddHook(WndProc);
             
             // Initial topmost enforcement
-            EnsureTopmost();
+            ForceTopmost();
         };
         
         // Subscribe to display settings changes to reposition when WorkArea changes
@@ -294,7 +294,7 @@ public partial class DictationBar : Window
         {
             // Re-enforce topmost whenever our window position changes
             // This catches cases where other apps try to push us down in z-order
-            EnsureTopmost();
+            ForceTopmost();
         }
         return IntPtr.Zero;
     }
@@ -302,7 +302,7 @@ public partial class DictationBar : Window
     /// <summary>
     /// Forces the window to the topmost z-order position.
     /// </summary>
-    private void EnsureTopmost()
+    public void ForceTopmost()
     {
         var hwnd = new WindowInteropHelper(this).Handle;
         if (hwnd != IntPtr.Zero)
@@ -321,7 +321,7 @@ public partial class DictationBar : Window
     {
         // Re-enforce topmost on UI thread whenever foreground window changes
         // This handles the Windows 11 bug where Paint (and similar apps) can strip topmost
-        Dispatcher.BeginInvoke(() => EnsureTopmost());
+        Dispatcher.BeginInvoke(() => ForceTopmost());
     }
     
     /// <summary>
@@ -773,6 +773,7 @@ public partial class DictationBar : Window
     /// </summary>
     private async void ChatGPTButton_Click(object sender, MouseButtonEventArgs e)
     {
+        e.Handled = true;
         await ToggleProvider("ChatGPT");
     }
     
@@ -781,6 +782,7 @@ public partial class DictationBar : Window
     /// </summary>
     private async void GeminiButton_Click(object sender, MouseButtonEventArgs e)
     {
+        e.Handled = true;
         await ToggleProvider("Gemini");
     }
     
@@ -1026,6 +1028,10 @@ public partial class DictationBar : Window
     /// </summary>
     private void SettingsButton_Click(object sender, MouseButtonEventArgs e)
     {
+        // CRITICAL: Mark event as handled to prevent bubbling to RootGrid's drag handler.
+        // Without this, the click bubbles up, triggers drag logic, ShowDialog blocks,
+        // and DragTransform.Y gets corrupted, pushing the bar off-screen.
+        e.Handled = true;
         SettingsRequested?.Invoke(this, EventArgs.Empty);
     }
     
@@ -1565,6 +1571,20 @@ public partial class DictationBar : Window
     
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // Prevent closing, just reset to idle state
+        // NOTE: Do NOT unsubscribe from events here! This method is called every time
+        // a close is attempted (e.g., when a modal dialog closes and Windows sends WM_CLOSE
+        // to the owner). Unsubscribing would permanently disable topmost enforcement.
+        e.Cancel = true;
+        HideAndReset();
+    }
+    
+    /// <summary>
+    /// Called when the application is actually exiting (via tray icon Exit).
+    /// Only here do we clean up resources.
+    /// </summary>
+    public void CleanupAndClose()
+    {
         // Unsubscribe from system events to prevent memory leaks
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         
@@ -1575,8 +1595,7 @@ public partial class DictationBar : Window
             _winEventHook = IntPtr.Zero;
         }
         
-        // Prevent closing, just reset
-        e.Cancel = true;
-        HideAndReset();
+        // Now actually close
+        Application.Current.Shutdown();
     }
 }
