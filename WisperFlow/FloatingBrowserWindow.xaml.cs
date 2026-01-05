@@ -251,8 +251,9 @@ public partial class FloatingBrowserWindow : Window
         webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
         
-        // Set mobile User-Agent for Notion and GoogleTasks to get mobile-friendly UI
-        if (provider is "Notion" or "GoogleTasks")
+        // Set mobile User-Agent for Notion to get mobile-friendly UI
+        // Google Tasks handles desktop/responsive better, or might fail with mobile UA
+        if (provider == "Notion")
         {
             webView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
         }
@@ -894,15 +895,31 @@ public partial class FloatingBrowserWindow : Window
             var brush = new LinearGradientBrush(colors.Start, colors.End, 45);
             ProviderIcon.Fill = brush;
         }
+        
+        UrlTextBox.Text = CurrentUrl;
     }
 
     private void ShowLoading(bool show)
     {
-        LoadingText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        // LoadingText was removed, using UrlTextBox/Overlay instead if needed
+    }
+
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ActiveWebView?.CoreWebView2 != null)
+        {
+            ActiveWebView.CoreWebView2.Reload();
+        }
     }
 
     private async void OnNavigationStarting(string provider, CoreWebView2NavigationStartingEventArgs e)
     {
+        // Update URL TextBox if this is the active provider
+        if (provider == _currentProvider)
+        {
+            UrlTextBox.Text = e.Uri;
+        }
+
         // Update the URL for the specific provider and reset page ready state
         switch (provider)
         {
