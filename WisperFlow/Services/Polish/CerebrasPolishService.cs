@@ -86,13 +86,16 @@ public class CerebrasPolishService : IPolishService
             // Use higher max_tokens when code context is included to prevent truncation
             var maxTokens = codeContext != null ? 1200 : 600;
             
+            // Label the user content to clearly distinguish it from instructions
+            var userContent = $"[AUDIO TRANSCRIPTION]\n{rawText}";
+            
             var requestBody = new Dictionary<string, object>
             {
                 ["model"] = _apiModelName,
                 ["messages"] = new[]
                 {
                     new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
-                    new Dictionary<string, string> { ["role"] = "user", ["content"] = rawText }
+                    new Dictionary<string, string> { ["role"] = "user", ["content"] = userContent }
                 },
                 ["max_tokens"] = maxTokens,
                 ["temperature"] = 0.1
