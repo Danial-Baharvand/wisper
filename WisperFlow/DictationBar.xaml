@@ -447,6 +447,34 @@
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
+                    
+                    <!-- Google Tasks Button -->
+                    <Border x:Name="GoogleTasksButton" 
+                            Style="{StaticResource ProviderButtonStyle}"
+                            Background="#E6121820"
+                            ToolTip="Google Tasks"
+                            MouseLeftButtonDown="GoogleTasksButton_Click">
+                        <Border.Effect>
+                            <DropShadowEffect Color="Black" BlurRadius="6" Opacity="0.2" ShadowDepth="1"/>
+                        </Border.Effect>
+                        <!-- Google Tasks icon - blue circle with checkmark -->
+                        <Grid>
+                            <Ellipse x:Name="GoogleTasksIndicator" 
+                                     Width="20" Height="20"
+                                     StrokeThickness="2"
+                                     Stroke="#4285F4">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="#4285F4" Opacity="0.2"/>
+                                </Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock Text="✓" 
+                                       Foreground="#4285F4" 
+                                       FontFamily="Segoe UI Semibold" 
+                                       FontSize="12"
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </StackPanel>
         </StackPanel>

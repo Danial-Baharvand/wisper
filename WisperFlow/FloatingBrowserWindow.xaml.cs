@@ -32,12 +32,19 @@ public partial class FloatingBrowserWindow : Window
     private bool _chatGPTPageReady = false;
     private bool _geminiPageReady = false;
     private bool _notionPageReady = false;
+    private bool _googleTasksPageReady = false;
     private TaskCompletionSource<bool>? _chatGPTPageLoadTcs;
     private TaskCompletionSource<bool>? _geminiPageLoadTcs;
     private TaskCompletionSource<bool>? _notionPageLoadTcs;
+    private TaskCompletionSource<bool>? _googleTasksPageLoadTcs;
     
     // Notion OAuth state
     private bool _notionOAuthTriggered = false;
+    
+    // Google Tasks state
+    private bool _googleTasksInitialized = false;
+    private string _googleTasksUrl = "";
+    private bool _googleTasksOAuthTriggered = false;
     
     // Flag to prevent OnLoaded from repositioning during pre-initialization
     private bool _isPreInitializing = false;
@@ -52,7 +59,8 @@ public partial class FloatingBrowserWindow : Window
     {
         ["ChatGPT"] = (Color.FromRgb(16, 163, 127), Color.FromRgb(26, 127, 90)),   // Green
         ["Gemini"] = (Color.FromRgb(66, 133, 244), Color.FromRgb(52, 103, 194)),   // Blue
-        ["Notion"] = (Color.FromRgb(0, 0, 0), Color.FromRgb(55, 55, 55))           // Black
+        ["Notion"] = (Color.FromRgb(0, 0, 0), Color.FromRgb(55, 55, 55)),          // Black
+        ["GoogleTasks"] = (Color.FromRgb(66, 133, 244), Color.FromRgb(52, 103, 194))  // Google Blue
     };
 
     public string CurrentProvider => _currentProvider;
@@ -61,6 +69,7 @@ public partial class FloatingBrowserWindow : Window
         "ChatGPT" => _chatGPTUrl,
         "Gemini" => _geminiUrl,
         "Notion" => _notionUrl,
+        "GoogleTasks" => _googleTasksUrl,
         _ => ""
     };
     
@@ -72,6 +81,7 @@ public partial class FloatingBrowserWindow : Window
         "ChatGPT" => ChatGPTWebView,
         "Gemini" => GeminiWebView,
         "Notion" => NotionWebView,
+        "GoogleTasks" => GoogleTasksWebView,
         _ => ChatGPTWebView
     };
 
@@ -215,6 +225,7 @@ public partial class FloatingBrowserWindow : Window
             "ChatGPT" => ChatGPTWebView,
             "Gemini" => GeminiWebView,
             "Notion" => NotionWebView,
+            "GoogleTasks" => GoogleTasksWebView,
             _ => ChatGPTWebView
         };
         
@@ -223,6 +234,7 @@ public partial class FloatingBrowserWindow : Window
             "ChatGPT" => _chatGPTInitialized,
             "Gemini" => _geminiInitialized,
             "Notion" => _notionInitialized,
+            "GoogleTasks" => _googleTasksInitialized,
             _ => false
         };
         
@@ -239,8 +251,8 @@ public partial class FloatingBrowserWindow : Window
         webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
         webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
         
-        // Set mobile User-Agent for Notion to get mobile-friendly UI
-        if (provider == "Notion")
+        // Set mobile User-Agent for Notion and GoogleTasks to get mobile-friendly UI
+        if (provider is "Notion" or "GoogleTasks")
         {
             webView.CoreWebView2.Settings.UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1";
         }
@@ -257,12 +269,16 @@ public partial class FloatingBrowserWindow : Window
             case "ChatGPT": _chatGPTPageLoadTcs = tcs; break;
             case "Gemini": _geminiPageLoadTcs = tcs; break;
             case "Notion": _notionPageLoadTcs = tcs; break;
+            case "GoogleTasks": _googleTasksPageLoadTcs = tcs; break;
         }
         
-        // Navigate to provider home (Notion starts at login)
-        var url = provider == "Notion" 
-            ? "https://www.notion.so/login" 
-            : BrowserProfileManager.GetProviderUrl(provider);
+        // Navigate to provider home (Notion/GoogleTasks start at login)
+        var url = provider switch
+        {
+            "Notion" => "https://www.notion.so/login",
+            "GoogleTasks" => "https://tasks.google.com",
+            _ => BrowserProfileManager.GetProviderUrl(provider)
+        };
         webView.CoreWebView2.Navigate(url);
         
         // Mark as initialized
@@ -279,7 +295,12 @@ public partial class FloatingBrowserWindow : Window
             case "Notion":
                 _notionInitialized = true;
                 _notionUrl = url;
-                _notionOAuthTriggered = false; // Reset OAuth state
+                _notionOAuthTriggered = false;
+                break;
+            case "GoogleTasks":
+                _googleTasksInitialized = true;
+                _googleTasksUrl = url;
+                _googleTasksOAuthTriggered = false;
                 break;
         }
         
@@ -340,6 +361,7 @@ public partial class FloatingBrowserWindow : Window
         ChatGPTWebView.Visibility = _currentProvider == "ChatGPT" ? Visibility.Visible : Visibility.Collapsed;
         GeminiWebView.Visibility = _currentProvider == "Gemini" ? Visibility.Visible : Visibility.Collapsed;
         NotionWebView.Visibility = _currentProvider == "Notion" ? Visibility.Visible : Visibility.Collapsed;
+        GoogleTasksWebView.Visibility = _currentProvider == "GoogleTasks" ? Visibility.Visible : Visibility.Collapsed;
     }
     
     /// <summary>
@@ -907,6 +929,19 @@ public partial class FloatingBrowserWindow : Window
                     return;
                 }
                 break;
+            case "GoogleTasks":
+                _googleTasksUrl = e.Uri;
+                _googleTasksPageReady = false;
+                _googleTasksPageLoadTcs = new TaskCompletionSource<bool>();
+                
+                // Intercept OAuth callback redirect
+                if (e.Uri.StartsWith("https://localhost/callback", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Cancel = true;
+                    await HandleGoogleTasksOAuthCallbackAsync(e.Uri);
+                    return;
+                }
+                break;
         }
         
         // Only show loading for current provider
@@ -971,6 +1006,16 @@ public partial class FloatingBrowserWindow : Window
                     TriggerNotionOAuth();
                 }
                 break;
+            case "GoogleTasks":
+                _googleTasksPageReady = true;
+                _googleTasksPageLoadTcs?.TrySetResult(e.IsSuccess);
+                
+                // Check if user is on dashboard (logged in) and OAuth not yet triggered
+                if (!_googleTasksOAuthTriggered && IsGoogleTasksDashboard(_googleTasksUrl))
+                {
+                    TriggerGoogleTasksOAuth();
+                }
+                break;
         }
     }
     
@@ -1011,6 +1056,74 @@ public partial class FloatingBrowserWindow : Window
         
         _notionOAuthTriggered = true;
         NotionWebView?.CoreWebView2?.Navigate(authUrl);
+    }
+    
+    /// <summary>
+    /// Handles Google Tasks OAuth callback - extracts code and exchanges for token.
+    /// </summary>
+    private async Task HandleGoogleTasksOAuthCallbackAsync(string callbackUrl)
+    {
+        try
+        {
+            var googleTasksProvider = Services.NoteProviders.NoteProviderRegistry.Get("GoogleTasks") 
+                as Services.NoteProviders.GoogleTasksNoteProvider;
+            
+            if (googleTasksProvider == null) return;
+            
+            var code = googleTasksProvider.ExtractAuthCode(callbackUrl);
+            if (string.IsNullOrEmpty(code)) return;
+            
+            // Exchange code for token
+            var success = await googleTasksProvider.ExchangeCodeAsync(code);
+            
+            // Navigate back to Google Tasks
+            if (success && GoogleTasksWebView?.CoreWebView2 != null)
+            {
+                GoogleTasksWebView.CoreWebView2.Navigate("https://tasks.google.com");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Google Tasks OAuth error: {ex.Message}");
+        }
+    }
+    
+    /// <summary>
+    /// Checks if URL is Google Tasks dashboard (user is logged in).
+    /// </summary>
+    private bool IsGoogleTasksDashboard(string url)
+    {
+        var googleTasksProvider = Services.NoteProviders.NoteProviderRegistry.Get("GoogleTasks") 
+            as Services.NoteProviders.GoogleTasksNoteProvider;
+        return googleTasksProvider?.IsDashboardUrl(url) ?? false;
+    }
+    
+    /// <summary>
+    /// Triggers the Google Tasks OAuth authorization flow.
+    /// </summary>
+    private void TriggerGoogleTasksOAuth()
+    {
+        var googleTasksProvider = Services.NoteProviders.NoteProviderRegistry.Get("GoogleTasks") 
+            as Services.NoteProviders.GoogleTasksNoteProvider;
+        
+        if (googleTasksProvider == null) return;
+        
+        // If already authenticated, no need to trigger OAuth
+        if (googleTasksProvider.IsAuthenticated)
+        {
+            _googleTasksOAuthTriggered = true;
+            return;
+        }
+        
+        var authUrl = googleTasksProvider.GetAuthorizationUrl();
+        if (string.IsNullOrEmpty(authUrl)) 
+        {
+            System.Diagnostics.Debug.WriteLine("Google Tasks OAuth not configured. Please set Client ID and Secret.");
+            return;
+        }
+        
+        _googleTasksOAuthTriggered = true;
+        GoogleTasksWebView?.CoreWebView2?.Navigate(authUrl);
     }
 
     private async void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)

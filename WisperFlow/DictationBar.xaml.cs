@@ -719,6 +719,47 @@ public partial class DictationBar : Window
     }
     
     /// <summary>
+    /// Google Tasks button click handler.
+    /// During recording: signals intent to create a task after transcription.
+    /// Otherwise: opens floating browser at Google Tasks.
+    /// </summary>
+    private async void GoogleTasksButton_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        
+        var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
+        
+        // Fire event for orchestrator to handle
+        NoteProviderClicked?.Invoke(this, new NoteProviderClickEventArgs("GoogleTasks", isRecording));
+        
+        if (isRecording)
+        {
+            // Visual feedback - show button as "selected"
+            UpdateGoogleTasksButtonCaptured();
+        }
+        else
+        {
+            // Open floating browser at Google Tasks
+            await ToggleProvider("GoogleTasks");
+        }
+    }
+    
+    /// <summary>
+    /// Updates Google Tasks button to show it was clicked during recording.
+    /// </summary>
+    private void UpdateGoogleTasksButtonCaptured()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            // Solid blue fill to show capture complete
+            GoogleTasksIndicator.Stroke = new SolidColorBrush(Color.FromRgb(66, 133, 244));
+            GoogleTasksIndicator.Fill = new SolidColorBrush(Color.FromRgb(66, 133, 244));
+            GoogleTasksButton.ToolTip = "Task will be created ✓";
+        });
+    }
+
+    
+    /// <summary>
     /// Toggles the floating browser for the specified provider.
     /// If already open with same provider, closes it. Otherwise opens/switches.
     /// </summary>

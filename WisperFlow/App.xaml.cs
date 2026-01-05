@@ -168,6 +168,7 @@ public partial class App : Application
         
         // Register note providers
         Services.NoteProviders.NoteProviderRegistry.Register(new Services.NoteProviders.NotionNoteProvider());
+        Services.NoteProviders.NoteProviderRegistry.Register(new Services.NoteProviders.GoogleTasksNoteProvider(_loggerFactory!.CreateLogger<Services.NoteProviders.GoogleTasksNoteProvider>()));
 
         _hotkeyManager = new HotkeyManager(_loggerFactory!.CreateLogger<HotkeyManager>());
         _audioRecorder = new AudioRecorder(_loggerFactory!.CreateLogger<AudioRecorder>());

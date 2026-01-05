@@ -180,6 +180,10 @@
                         <wv2:WebView2 x:Name="NotionWebView"
                                       DefaultBackgroundColor="Transparent"
                                       Visibility="Collapsed"/>
+                        <!-- Google Tasks WebView -->
+                        <wv2:WebView2 x:Name="GoogleTasksWebView"
+                                      DefaultBackgroundColor="Transparent"
+                                      Visibility="Collapsed"/>
                         
                         <!-- Corner masks to create rounded corner effect over WebView2 -->
                         <!-- Bottom-left corner mask -->
