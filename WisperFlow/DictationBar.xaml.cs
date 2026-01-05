@@ -7,6 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Microsoft.Win32;
 
 namespace WisperFlow;
 
@@ -151,18 +152,43 @@ public partial class DictationBar : Window
     /// Gets the floating browser window instance.
     /// </summary>
     public FloatingBrowserWindow? FloatingBrowser => _floatingBrowser;
-    
-    
     // Win32 constants
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
+    
+    // Topmost enforcement constants
+    private const int WM_WINDOWPOSCHANGED = 0x0047;
+    private const int SWP_NOMOVE = 0x0002;
+    private const int SWP_NOSIZE = 0x0001;
+    private const int SWP_NOACTIVATE = 0x0010;
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    
+    // Foreground window change detection (for Windows 11 Paint bug workaround)
+    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+    private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, 
+        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+    private WinEventDelegate? _winEventDelegate;
+    private IntPtr _winEventHook = IntPtr.Zero;
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, 
+        int X, int Y, int cx, int cy, uint uFlags);
+    
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+    
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
     public DictationBar()
     {
@@ -217,13 +243,32 @@ public partial class DictationBar : Window
         MainBar.MouseEnter += MainBar_MouseEnter;
         MainBar.MouseLeave += MainBar_MouseLeave;
         
-        // Make window non-activating
+        // Make window non-activating and hook into window messages for topmost enforcement
         SourceInitialized += (s, e) =>
         {
             var hwnd = new WindowInteropHelper(this).Handle;
             var extendedStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
             SetWindowLong(hwnd, GWL_EXSTYLE, extendedStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+            
+            // Hook into window messages to detect z-order changes
+            var source = HwndSource.FromHwnd(hwnd);
+            source?.AddHook(WndProc);
+            
+            // Initial topmost enforcement
+            EnsureTopmost();
         };
+        
+        // Subscribe to display settings changes to reposition when WorkArea changes
+        // This handles cases where apps like Paint cause the work area to shift
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        
+        // Hook foreground window changes to re-enforce topmost (Windows 11 Paint bug workaround)
+        // When any app takes focus, we re-enforce our topmost status
+        _winEventDelegate = OnForegroundWindowChanged;
+        _winEventHook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+            IntPtr.Zero, _winEventDelegate, 0, 0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
         
         // Start visible
         Show();
@@ -237,6 +282,67 @@ public partial class DictationBar : Window
         Top = workArea.Top;
         Width = workArea.Width;
         Height = workArea.Height;
+    }
+    
+    /// <summary>
+    /// Window procedure hook to intercept window messages.
+    /// Re-enforces topmost z-order when position changes are detected.
+    /// </summary>
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_WINDOWPOSCHANGED)
+        {
+            // Re-enforce topmost whenever our window position changes
+            // This catches cases where other apps try to push us down in z-order
+            EnsureTopmost();
+        }
+        return IntPtr.Zero;
+    }
+    
+    /// <summary>
+    /// Forces the window to the topmost z-order position.
+    /// </summary>
+    private void EnsureTopmost()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+        {
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+    
+    /// <summary>
+    /// Callback for foreground window changes (Windows 11 Paint bug workaround).
+    /// Re-enforces topmost whenever any window becomes the foreground.
+    /// </summary>
+    private void OnForegroundWindowChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
+        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+    {
+        // Re-enforce topmost on UI thread whenever foreground window changes
+        // This handles the Windows 11 bug where Paint (and similar apps) can strip topmost
+        Dispatcher.BeginInvoke(() => EnsureTopmost());
+    }
+    
+    /// <summary>
+    /// Handles display settings changes (resolution, DPI, work area changes).
+    /// Repositions the window to match new WorkArea while preserving horizontal drag position.
+    /// </summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        // Must run on UI thread
+        Dispatcher.BeginInvoke(() =>
+        {
+            // Preserve the user's horizontal drag offset
+            var savedX = DragTransform.X;
+            
+            // Reposition window to match new WorkArea
+            PositionAtBottom();
+            
+            // Restore horizontal position
+            DragTransform.X = savedX;
+            DragTransform.Y = 0; // Ensure vertical is at bottom
+        });
     }
     
     /// <summary>
@@ -1418,6 +1524,16 @@ public partial class DictationBar : Window
     
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
+        // Unsubscribe from system events to prevent memory leaks
+        SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        
+        // Unhook foreground window change listener
+        if (_winEventHook != IntPtr.Zero)
+        {
+            UnhookWinEvent(_winEventHook);
+            _winEventHook = IntPtr.Zero;
+        }
+        
         // Prevent closing, just reset
         e.Cancel = true;
         HideAndReset();
