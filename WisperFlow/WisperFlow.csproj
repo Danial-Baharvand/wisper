@@ -49,6 +49,7 @@
 
   <ItemGroup>
     <Resource Include="Resources\app.ico" Condition="Exists('Resources\app.ico')" />
+    <Resource Include="Assets\Icons\*.png" />
   </ItemGroup>
 
   <!-- Copy faster-whisper Python scripts to output -->

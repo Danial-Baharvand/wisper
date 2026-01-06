@@ -69,7 +69,7 @@ public partial class DictationBar : Window
     
     // Floating browser state
     private FloatingBrowserWindow? _floatingBrowser;
-    private string _selectedProvider = "ChatGPT";
+    private string _selectedProvider = "Gemini"; // Default to Gemini
     private bool _providerButtonsVisible = false;
     private Storyboard? _providerButtonsShowAnimation;
     private Storyboard? _providerButtonsHideAnimation;
@@ -752,37 +752,94 @@ public partial class DictationBar : Window
     
     /// <summary>
     /// Updates the visual selection state of provider buttons.
-    /// Shows animated ring and glow for selected provider.
+    /// Note: This no longer shows rings - rings only appear when clicked during recording.
     /// </summary>
     private void UpdateProviderButtonSelection()
     {
-        // ChatGPT selection state
-        if (_selectedProvider == "ChatGPT")
+        // Provider selection is now stored but doesn't show visual ring
+        // Rings only appear when user clicks during recording to indicate destination
+    }
+    
+    /// <summary>
+    /// Shows the recording destination ring on a specific provider button.
+    /// Only call this when user clicks on a provider DURING recording.
+    /// </summary>
+    private void ShowRecordingDestinationRing(string provider)
+    {
+        // First hide all rings
+        HideAllProviderRings();
+        
+        // Show ring for the clicked provider
+        switch (provider)
         {
-            // Show ChatGPT ring and glow
-            ChatGPTRing.Opacity = 1;
-            ChatGPTGlow.Opacity = 0.6;
-            AnimateRingPulse(ChatGPTRing);
-            
-            // Hide other rings
-            GeminiRing.Opacity = 0;
-            GeminiGlow.Opacity = 0;
-        }
-        else // Gemini selected
-        {
-            // Show Gemini ring and glow
-            GeminiRing.Opacity = 1;
-            GeminiGlow.Opacity = 0.6;
-            AnimateRingPulse(GeminiRing);
-            
-            // Hide ChatGPT ring
-            ChatGPTRing.Opacity = 0;
-            ChatGPTGlow.Opacity = 0;
+            case "ChatGPT":
+                ChatGPTRing.Visibility = Visibility.Visible;
+                ChatGPTRing.Opacity = 1;
+                ChatGPTGlow.Opacity = 0.6;
+                AnimateRingPulse(ChatGPTRing);
+                break;
+            case "Gemini":
+                GeminiRing.Visibility = Visibility.Visible;
+                GeminiRing.Opacity = 1;
+                GeminiGlow.Opacity = 0.6;
+                AnimateRingPulse(GeminiRing);
+                break;
+            case "Notion":
+                NotionRing.Visibility = Visibility.Visible;
+                NotionRing.Opacity = 1;
+                NotionGlow.Opacity = 0.6;
+                AnimateRingPulse(NotionRing);
+                break;
+            case "GoogleTasks":
+                GoogleTasksRing.Visibility = Visibility.Visible;
+                GoogleTasksRing.Opacity = 1;
+                GoogleTasksGlow.Opacity = 0.6;
+                AnimateRingPulse(GoogleTasksRing);
+                break;
         }
     }
     
     /// <summary>
-    /// Animates a selection ring with a subtle rotating gradient effect.
+    /// Hides all provider rings. Called when dictation ends or starts.
+    /// </summary>
+    private void HideAllProviderRings()
+    {
+        // Stop any running animations and completely hide rings
+        ChatGPTRing.BeginAnimation(OpacityProperty, null);
+        ChatGPTRing.Opacity = 0;
+        ChatGPTRing.Visibility = Visibility.Collapsed;
+        ChatGPTGlow.Opacity = 0;
+        
+        GeminiRing.BeginAnimation(OpacityProperty, null);
+        GeminiRing.Opacity = 0;
+        GeminiRing.Visibility = Visibility.Collapsed;
+        GeminiGlow.Opacity = 0;
+        
+        NotionRing.BeginAnimation(OpacityProperty, null);
+        NotionRing.Opacity = 0;
+        NotionRing.Visibility = Visibility.Collapsed;
+        NotionGlow.Opacity = 0;
+        
+        GoogleTasksRing.BeginAnimation(OpacityProperty, null);
+        GoogleTasksRing.Opacity = 0;
+        GoogleTasksRing.Visibility = Visibility.Collapsed;
+        GoogleTasksGlow.Opacity = 0;
+    }
+    
+    /// <summary>
+    /// Lowers all provider buttons back to original position.
+    /// Called when floating browser closes.
+    /// </summary>
+    private void LowerAllProviderButtons()
+    {
+        PlayButtonLiftDown(ChatGPTButton);
+        PlayButtonLiftDown(GeminiButton);
+        PlayButtonLiftDown(NotionButton);
+        PlayButtonLiftDown(GoogleTasksButton);
+    }
+    
+    /// <summary>
+    /// Animates a selection ring with a breathing/pulse effect.
     /// </summary>
     private void AnimateRingPulse(Ellipse ring)
     {
@@ -800,15 +857,17 @@ public partial class DictationBar : Window
     
     /// <summary>
     /// Plays a bounce animation on a button when clicked.
+    /// After completion, explicitly clears the animation to allow hover triggers to work.
     /// </summary>
     private void PlayButtonBounce(Border button)
     {
+        // Get existing transform - DON'T replace it as that breaks style triggers
         var scaleTransform = button.RenderTransform as ScaleTransform;
         if (scaleTransform == null)
         {
-            scaleTransform = new ScaleTransform(1, 1);
-            button.RenderTransform = scaleTransform;
-            button.RenderTransformOrigin = new Point(0.5, 0.5);
+            // If no transform exists, the style should have set one
+            // Just return to avoid issues
+            return;
         }
         
         var bounceX = new DoubleAnimation
@@ -828,28 +887,202 @@ public partial class DictationBar : Window
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
         
+        // CRITICAL: When the animation completes, explicitly clear it by passing null
+        // This removes WPF's internal animation layer that blocks style hover triggers
+        bounceX.Completed += (s, e) =>
+        {
+            scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        };
+        bounceY.Completed += (s, e) =>
+        {
+            scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        };
+        
         scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, bounceX);
         scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, bounceY);
     }
     
     /// <summary>
+    /// Animation 1: Settings - Rotating gear 360° when clicked
+    /// </summary>
+    private void PlaySettingsGearRotation()
+    {
+        var rotateAnimation = new DoubleAnimation
+        {
+            From = 0,
+            To = 360,
+            Duration = TimeSpan.FromMilliseconds(600),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+        };
+        SettingsGearRotation.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, rotateAnimation);
+    }
+    
+    /// <summary>
+    /// Animation 2: Screenshot - Camera flash effect
+    /// </summary>
+    private void PlayScreenshotFlash()
+    {
+        var flashIn = new DoubleAnimation
+        {
+            From = 0,
+            To = 0.8,
+            Duration = TimeSpan.FromMilliseconds(80),
+            AutoReverse = true,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        ScreenshotFlash.BeginAnimation(OpacityProperty, flashIn);
+    }
+    
+    /// <summary>
+    /// Animation 3: Notion - Ink ripple expanding outward
+    /// </summary>
+    private void PlayNotionInkRipple()
+    {
+        // Opacity pulse
+        var opacityAnim = new DoubleAnimation
+        {
+            From = 0.6,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(400),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        // Scale expand
+        var scaleAnim = new DoubleAnimation
+        {
+            From = 0.5,
+            To = 1.5,
+            Duration = TimeSpan.FromMilliseconds(400),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        
+        NotionInkRipple.BeginAnimation(OpacityProperty, opacityAnim);
+        NotionRippleScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnim);
+        NotionRippleScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
+    }
+    
+    /// <summary>
+    /// Animation 4: Google Tasks - Green completion flash
+    /// </summary>
+    private void PlayTasksCompletionFlash()
+    {
+        var flashAnim = new DoubleAnimation
+        {
+            From = 0.5,
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(300),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        TasksCompletionFlash.BeginAnimation(OpacityProperty, flashAnim);
+    }
+    
+    /// <summary>
+    /// Animation 5: Lift button up when its floating window opens
+    /// </summary>
+    private void PlayButtonLiftUp(Border button)
+    {
+        if (!(button.RenderTransform is TranslateTransform))
+        {
+            button.RenderTransform = new TranslateTransform(0, 0);
+        }
+        var translateTransform = button.RenderTransform as TranslateTransform;
+        
+        var liftAnim = new DoubleAnimation
+        {
+            From = 0,
+            To = -4,
+            Duration = TimeSpan.FromMilliseconds(200),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        translateTransform?.BeginAnimation(TranslateTransform.YProperty, liftAnim);
+    }
+    
+    /// <summary>
+    /// Animation 6: Return button to original position
+    /// </summary>
+    private void PlayButtonLiftDown(Border button)
+    {
+        var translateTransform = button.RenderTransform as TranslateTransform;
+        if (translateTransform == null) return;
+        
+        var dropAnim = new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(200),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        translateTransform.BeginAnimation(TranslateTransform.YProperty, dropAnim);
+    }
+    
+    /// <summary>
     /// ChatGPT button click handler.
+    /// During recording: sets ChatGPT as destination and shows ring.
+    /// Otherwise: opens floating browser.
     /// </summary>
     private async void ChatGPTButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         PlayButtonBounce(ChatGPTButton);
-        await ToggleProvider("ChatGPT");
+        
+        var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
+        
+        if (isRecording)
+        {
+            // Set ChatGPT as destination and show ring
+            _selectedProvider = "ChatGPT";
+            ShowRecordingDestinationRing("ChatGPT");
+        }
+        else
+        {
+            // Check if this is a close operation (same provider, browser visible)
+            bool isClosing = _selectedProvider == "ChatGPT" && _floatingBrowser?.IsVisible == true;
+            
+            // Lower all buttons first
+            LowerAllProviderButtons();
+            
+            // Only lift if we're opening, not closing
+            if (!isClosing)
+            {
+                PlayButtonLiftUp(ChatGPTButton);
+            }
+            
+            await ToggleProvider("ChatGPT");
+        }
     }
     
     /// <summary>
     /// Gemini button click handler.
+    /// During recording: sets Gemini as destination and shows ring.
+    /// Otherwise: opens floating browser.
     /// </summary>
     private async void GeminiButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         PlayButtonBounce(GeminiButton);
-        await ToggleProvider("Gemini");
+        
+        var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
+        
+        if (isRecording)
+        {
+            // Set Gemini as destination and show ring
+            _selectedProvider = "Gemini";
+            ShowRecordingDestinationRing("Gemini");
+        }
+        else
+        {
+            // Check if this is a close operation (same provider, browser visible)
+            bool isClosing = _selectedProvider == "Gemini" && _floatingBrowser?.IsVisible == true;
+            
+            // Lower all buttons first
+            LowerAllProviderButtons();
+            
+            // Only lift if we're opening, not closing
+            if (!isClosing)
+            {
+                PlayButtonLiftUp(GeminiButton);
+            }
+            
+            await ToggleProvider("Gemini");
+        }
     }
     
     /// <summary>
@@ -860,6 +1093,10 @@ public partial class DictationBar : Window
     private async void NotionButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        
+        // Play ink ripple animation
+        PlayNotionInkRipple();
+        PlayButtonBounce(NotionButton);
         
         var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
         
@@ -873,6 +1110,18 @@ public partial class DictationBar : Window
         }
         else
         {
+            // Check if this is a close operation (same provider, browser visible)
+            bool isClosing = _selectedProvider == "Notion" && _floatingBrowser?.IsVisible == true;
+            
+            // Lower all buttons first
+            LowerAllProviderButtons();
+            
+            // Only lift if we're opening, not closing
+            if (!isClosing)
+            {
+                PlayButtonLiftUp(NotionButton);
+            }
+            
             // Open floating browser at Notion
             await ToggleProvider("Notion");
         }
@@ -885,9 +1134,9 @@ public partial class DictationBar : Window
     {
         Dispatcher.Invoke(() =>
         {
-            // Solid black fill to show capture complete
-            NotionIndicator.Background = new SolidColorBrush(Color.FromRgb(0, 0, 0));
             NotionButton.ToolTip = "Note will be created ✓";
+            // Show ring with breathing animation
+            ShowRecordingDestinationRing("Notion");
         });
     }
     
@@ -899,6 +1148,10 @@ public partial class DictationBar : Window
     private async void GoogleTasksButton_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        
+        // Play completion flash animation
+        PlayTasksCompletionFlash();
+        PlayButtonBounce(GoogleTasksButton);
         
         var isRecording = _currentState == BarState.Recording || _currentState == BarState.Speaking;
         
@@ -912,6 +1165,18 @@ public partial class DictationBar : Window
         }
         else
         {
+            // Check if this is a close operation (same provider, browser visible)
+            bool isClosing = _selectedProvider == "GoogleTasks" && _floatingBrowser?.IsVisible == true;
+            
+            // Lower all buttons first
+            LowerAllProviderButtons();
+            
+            // Only lift if we're opening, not closing
+            if (!isClosing)
+            {
+                PlayButtonLiftUp(GoogleTasksButton);
+            }
+            
             // Open floating browser at Google Tasks
             await ToggleProvider("GoogleTasks");
         }
@@ -924,10 +1189,9 @@ public partial class DictationBar : Window
     {
         Dispatcher.Invoke(() =>
         {
-            // Solid blue fill to show capture complete
-            GoogleTasksIndicator.Stroke = new SolidColorBrush(Color.FromRgb(66, 133, 244));
-            GoogleTasksIndicator.Fill = new SolidColorBrush(Color.FromRgb(66, 133, 244));
             GoogleTasksButton.ToolTip = "Task will be created ✓";
+            // Show ring with breathing animation
+            ShowRecordingDestinationRing("GoogleTasks");
         });
     }
 
@@ -1044,6 +1308,9 @@ public partial class DictationBar : Window
     
     private void OnBrowserClosing(object? sender, EventArgs e)
     {
+        // Lower all provider buttons back to original position
+        LowerAllProviderButtons();
+        
         // Optionally hide provider buttons when browser closes
         if (_currentState == BarState.Idle && !IsMouseOverProviderButtons())
         {
@@ -1097,6 +1364,11 @@ public partial class DictationBar : Window
         // Without this, the click bubbles up, triggers drag logic, ShowDialog blocks,
         // and DragTransform.Y gets corrupted, pushing the bar off-screen.
         e.Handled = true;
+        
+        // Play rotating gear animation
+        PlaySettingsGearRotation();
+        PlayButtonBounce(SettingsButton);
+        
         SettingsRequested?.Invoke(this, EventArgs.Empty);
     }
     
@@ -1107,6 +1379,10 @@ public partial class DictationBar : Window
     {
         // Prevent event from bubbling to RootGrid (which would trigger drag logic)
         e.Handled = true;
+        
+        // Play camera flash animation
+        PlayScreenshotFlash();
+        PlayButtonBounce(ScreenshotButton);
 
         // Only allow screenshot capture during recording
         if (_currentState == BarState.Recording || _currentState == BarState.Speaking)
@@ -1150,9 +1426,9 @@ public partial class DictationBar : Window
             }
             else
             {
-                // Inactive - gray
-                ScreenshotIndicator.Stroke = new SolidColorBrush(Color.FromRgb(107, 114, 128)); // #6b7280
-                ScreenshotIndicator.Fill = new SolidColorBrush(Color.FromArgb(51, 107, 114, 128));
+                // Inactive - transparent (removes dark ring)
+                ScreenshotIndicator.Stroke = Brushes.Transparent;
+                ScreenshotIndicator.Fill = Brushes.Transparent;
                 ScreenshotButton.ToolTip = "Screenshot (available during recording)";
             }
         });
@@ -1234,6 +1510,9 @@ public partial class DictationBar : Window
         // Stop cursor blink
         _cursorBlinkTimer?.Stop();
         TypingCursor.Visibility = Visibility.Collapsed;
+        
+        // Hide all provider rings (dictation ended)
+        HideAllProviderRings();
         
         // Update screenshot button state
         UpdateScreenshotButtonState();
