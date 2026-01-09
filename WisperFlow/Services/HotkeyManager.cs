@@ -7,17 +7,15 @@ namespace WisperFlow.Services;
 /// <summary>
 /// Manages global hotkey registration and low-level keyboard hooks for press/release detection.
 /// Uses polling with GetAsyncKeyState for reliable modifier detection.
-/// Supports three modes: Regular Dictation, Command Mode, and Code Dictation.
+/// Supports two modes: Regular Dictation and Command Mode.
 /// </summary>
 public class HotkeyManager : IDisposable
 {
     private readonly ILogger<HotkeyManager> _logger;
     private HotkeyModifiers _currentModifiers;       // Regular dictation (default: Ctrl+Win)
     private HotkeyModifiers _commandModifiers;       // Command mode (default: Ctrl+Win+Alt)
-    private HotkeyModifiers _codeDictationModifiers; // Code dictation (default: Ctrl+Shift)
     private bool _disposed;
     private bool _commandModeEnabled = true;
-    private bool _codeDictationEnabled = true;
     
     // Polling-based detection
     private System.Threading.Timer? _pollTimer;
@@ -27,7 +25,6 @@ public class HotkeyManager : IDisposable
     private DateTime _releaseFirstDetected;  // Track when release started
     private const int PollIntervalMs = 15;       // Fast polling
     private const int CommandHoldThresholdMs = 0;  // Command mode is instant (most specific - 3 keys)
-    private const int CodeDictationHoldThresholdMs = 30; // Code dictation waits slightly (2 keys but specific)
     private const int RegularHoldThresholdMs = 60; // Regular mode waits a bit (in case user is pressing more keys)
     private const int ReleaseThresholdMs = 80;   // Time keys must be released before stopping
 
@@ -41,14 +38,12 @@ public class HotkeyManager : IDisposable
     private const int VK_LSHIFT = 0xA0;
     private const int VK_RSHIFT = 0xA1;
     
-    private enum RecordingMode { None, Regular, Command, CodeDictation }
+    private enum RecordingMode { None, Regular, Command }
 
     public event EventHandler? RecordStart;
     public event EventHandler? RecordStop;
     public event EventHandler? CommandRecordStart;
     public event EventHandler? CommandRecordStop;
-    public event EventHandler? CodeDictationRecordStart;
-    public event EventHandler? CodeDictationRecordStop;
 
     public HotkeyManager(ILogger<HotkeyManager> logger)
     {
@@ -71,13 +66,6 @@ public class HotkeyManager : IDisposable
         _commandModifiers = modifiers;
         _commandModeEnabled = enabled;
         _logger.LogInformation("Command hotkey registered: Modifiers={Modifiers}, Enabled={Enabled}", modifiers, enabled);
-    }
-
-    public void RegisterCodeDictationHotkey(HotkeyModifiers modifiers, bool enabled)
-    {
-        _codeDictationModifiers = modifiers;
-        _codeDictationEnabled = enabled;
-        _logger.LogInformation("Code dictation hotkey registered: Modifiers={Modifiers}, Enabled={Enabled}", modifiers, enabled);
     }
 
     public void UnregisterHotkey()
@@ -106,9 +94,8 @@ public class HotkeyManager : IDisposable
             if (altPressed) currentModifiers |= HotkeyModifiers.Alt;
             if (shiftPressed) currentModifiers |= HotkeyModifiers.Shift;
 
-            // Check for matches - priority: Command (3 keys) > Code Dictation (2 keys) > Regular (2 keys)
+            // Check for matches - priority: Command (3 keys) > Regular (2 keys)
             bool commandMatch = _commandModeEnabled && MatchesModifiers(currentModifiers, _commandModifiers);
-            bool codeDictationMatch = _codeDictationEnabled && MatchesModifiers(currentModifiers, _codeDictationModifiers);
             bool regularMatch = MatchesModifiers(currentModifiers, _currentModifiers);
 
             // Handle state transitions
@@ -118,7 +105,6 @@ public class HotkeyManager : IDisposable
                 bool shouldContinue = _currentRecordingMode switch
                 {
                     RecordingMode.Command => HasMostModifiers(currentModifiers, _commandModifiers),
-                    RecordingMode.CodeDictation => HasMostModifiers(currentModifiers, _codeDictationModifiers),
                     RecordingMode.Regular => regularMatch,
                     _ => false
                 };
@@ -152,13 +138,6 @@ public class HotkeyManager : IDisposable
                                     CommandRecordStop?.Invoke(this, EventArgs.Empty);
                                 });
                                 break;
-                            case RecordingMode.CodeDictation:
-                                _logger.LogDebug("Code dictation hotkey released - stopping code recording");
-                                System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                                {
-                                    CodeDictationRecordStop?.Invoke(this, EventArgs.Empty);
-                                });
-                                break;
                             case RecordingMode.Regular:
                                 _logger.LogDebug("Hotkey released - stopping recording");
                                 System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
@@ -185,25 +164,6 @@ public class HotkeyManager : IDisposable
                     {
                         CommandRecordStart?.Invoke(this, EventArgs.Empty);
                     });
-                }
-                else if (codeDictationMatch)
-                {
-                    // Code dictation mode - wait slightly to ensure not adding more keys
-                    if (_modifiersFirstDetected == DateTime.MinValue)
-                    {
-                        _modifiersFirstDetected = DateTime.UtcNow;
-                    }
-                    else if ((DateTime.UtcNow - _modifiersFirstDetected).TotalMilliseconds >= CodeDictationHoldThresholdMs)
-                    {
-                        _isRecording = true;
-                        _currentRecordingMode = RecordingMode.CodeDictation;
-                        _releaseFirstDetected = DateTime.MinValue;
-                        _logger.LogDebug("Code dictation hotkey pressed - starting code recording");
-                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                        {
-                            CodeDictationRecordStart?.Invoke(this, EventArgs.Empty);
-                        });
-                    }
                 }
                 else if (regularMatch)
                 {

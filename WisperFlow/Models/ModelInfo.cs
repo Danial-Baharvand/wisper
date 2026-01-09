@@ -574,36 +574,6 @@ public static class ModelCatalog
         Gemma3_4B, Mistral7BInstruct, OpenChat35
     };
     
-    /// <summary>
-    /// Models suitable for code dictation (3B+ params or API models).
-    /// Excludes smaller models that struggle with code generation quality.
-    /// </summary>
-    public static IReadOnlyList<ModelInfo> CodeDictationModels { get; } = new[]
-    {
-        // Cloud models (API) - always included
-        OpenAIGpt5Mini, OpenAIGpt4oMini,
-        // Cerebras Cloud (fastest inference)
-        CerebrasLlama33_70B, CerebrasLlama31_8B, CerebrasGptOss120B,
-        CerebrasQwen3_32B, CerebrasQwen3_235B, CerebrasZaiGlm,
-        // Groq Cloud (ultra-fast LPU inference)
-        GroqLlama4Scout, GroqLlama4Maverick,
-        // 3B+ local models only (recommended for code)
-        Qwen25_3B,      // 3B - best overall quality
-        Llama32_3B,     // 3B - strong generalist
-        Gemma3_4B,      // 4B - excellent quality
-        Mistral7BInstruct, // 7B - high quality
-        OpenChat35      // 7B - high quality
-    };
-    
-    /// <summary>
-    /// Available programming languages for code dictation.
-    /// </summary>
-    public static IReadOnlyList<(string Code, string Name)> CodeDictationLanguages { get; } = new[]
-    {
-        ("python", "Python")
-        // Future: ("javascript", "JavaScript"), ("csharp", "C#"), etc.
-    };
-    
     public static ModelInfo? GetById(string id) =>
         WhisperModels.Concat(LLMModels).FirstOrDefault(m => m.Id == id);
 }

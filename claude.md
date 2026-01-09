@@ -9,7 +9,6 @@ WisperFlow is a **Windows push-to-talk dictation application** built with WPF/.N
 - **Multiple transcription backends**: OpenAI Whisper, Deepgram (streaming/batch), Groq Whisper, local Whisper.net
 - **Text polishing** via OpenAI, Groq, Cerebras, or local LLM (LLamaSharp)
 - **Command mode**: Voice queries to AI chatbots (ChatGPT, Gemini) via embedded WebView2 browser
-- **Code dictation mode**: Voice-to-code generation with IDE context awareness
 - **Notes mode**: Structured formatting with bullet points and headings
 - **Universal text injection**: Works with any Windows application via clipboard
 - **System tray integration**: Runs in background with tray icon
@@ -86,13 +85,6 @@ WisperFlow/
 │   │   │   ├── LocalLLMPolishService.cs       # LLamaSharp
 │   │   │   └── DisabledPolishService.cs
 │   │   │
-│   │   ├── CodeDictation/              # Voice-to-code generation
-│   │   │   ├── ICodeDictationService.cs
-│   │   │   ├── OpenAICodeDictationService.cs
-│   │   │   ├── GroqCodeDictationService.cs
-│   │   │   ├── CerebrasCodeDictationService.cs
-│   │   │   └── LocalCodeDictationService.cs
-│   │   │
 │   │   ├── CodeContext/                # IDE context extraction
 │   │   │   ├── CodeContextService.cs   # LSP integration, path caching
 │   │   │   ├── EnglishDictionary.cs    # Word filtering
@@ -110,7 +102,6 @@ WisperFlow/
 │   └── Python/                 # Python integration files
 │
 └── WisperFlow.Tests/           # Unit tests
-    ├── CodeDictationTests.cs
     ├── GeminiImageInjectionTests.cs
     ├── HotkeyParserTests.cs
     ├── OpenAIRequestBuilderTests.cs
@@ -162,8 +153,7 @@ private void PollKeyStates(object? state)
 
 **Priority system for overlapping hotkeys:**
 1. **Command Mode** (`Ctrl+Win+Alt`) - 3 keys, starts instantly (most specific)
-2. **Code Dictation** (`Ctrl+Shift`) - 2 keys, waits 30ms
-3. **Regular Dictation** (`Ctrl+Win`) - 2 keys, waits 60ms
+2. **Regular Dictation** (`Ctrl+Win`) - 2 keys, waits 60ms
 
 The delays prevent false triggers when user is pressing more keys to reach a different mode.
 
@@ -278,7 +268,7 @@ When text contains `@filename.ext` patterns matching known project files, the in
 
 ---
 
-## Three Dictation Modes
+## Two Dictation Modes
 
 ### Mode 1: Regular Dictation (`Ctrl+Win`)
 
@@ -336,27 +326,6 @@ private async Task ProcessCommandRecordingAsync(string audioFilePath)
 
 **Embedded Browser**: Uses WebView2 with persistent profiles so you stay logged into ChatGPT/Gemini. Queries are injected via JavaScript DOM manipulation for reliability.
 
-### Mode 3: Code Dictation (`Ctrl+Shift`)
-
-**Flow**: Voice → Transcribe → Code LLM → Inject code
-
-```csharp
-private async Task ProcessCodeDictationAsync(string audioFilePath)
-{
-    // Transcribe natural language
-    var rawTranscript = await _transcriptionService.TranscribeAsync(audioFilePath, language, ct);
-    
-    // Convert to code using specialized LLM
-    var code = await _codeDictationService.ConvertToCodeAsync(
-        rawTranscript.Trim(),
-        settings.CodeDictationLanguage,  // e.g., "python", "javascript"
-        ct);
-    
-    // Inject the generated code
-    await _textInjector.InjectTextAsync(code, ct);
-}
-```
-
 ---
 
 ## Window Management
@@ -381,6 +350,17 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
 // Also monitor foreground window changes
 SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
 ```
+
+**Layout Architecture:**
+The DictationBar uses a Grid-based layout where `MainBar` is always truly centered using `HorizontalAlignment="Center"`. Button panels (`LeftButtonsPanel`, `ProviderButtonsPanel`) are positioned using `RenderTransform.TranslateTransform` which doesn't affect layout measurement. This ensures:
+- MainBar stays perfectly centered regardless of button panel sizes
+- Smooth animations without layout jumping
+- Dynamic positioning that adapts when MainBar expands/contracts or buttons change
+
+The `UpdateButtonPanelPositions()` method calculates offsets based on `MainBar.ActualWidth` and button panel widths. Button show/hide animations are done via code-behind with calculated offsets.
+
+**Screen Coordinate API:**
+Use `GetButtonScreenCenter(buttonId)` or `GetButtonScreenBounds(buttonId)` to get screen coordinates of specific buttons. Valid button IDs: "settings", "screenshot", "chatgpt", "gemini", "notion", "tasks".
 
 ### FloatingBrowserWindow
 
@@ -446,20 +426,17 @@ public class AppSettings
     // Hotkeys
     public HotkeyModifiers HotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Win;
     public HotkeyModifiers CommandHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Win | HotkeyModifiers.Alt;
-    public HotkeyModifiers CodeDictationHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
-    
+
     // Models
     public string TranscriptionModelId { get; set; } = "openai-whisper";
     public string PolishModelId { get; set; } = "openai-gpt4o-mini";
     public string CommandModeModelId { get; set; } = "openai-gpt4o-mini";
-    public string CodeDictationModelId { get; set; } = "qwen2.5-3b";
-    
+
     // Behavior
     public bool PolishOutput { get; set; } = true;
     public bool NotesMode { get; set; } = false;
     public string Language { get; set; } = "auto";
-    public string CodeDictationLanguage { get; set; } = "python";
-    
+
     // Deepgram streaming options
     public bool DeepgramStreaming { get; set; } = false;
     public bool DeepgramSmartFormat { get; set; } = false;

@@ -24,7 +24,6 @@ public partial class SettingsWindow : Window
     private HotkeyModifiers _capturedModifiers;
     private TextBox? _activeHotkeyTextBox;
     private HotkeyModifiers _commandCapturedModifiers;
-    private HotkeyModifiers _codeDictationCapturedModifiers;
 
     // All section panels for navigation
     private readonly Dictionary<string, StackPanel> _sections = new();
@@ -49,7 +48,6 @@ public partial class SettingsWindow : Window
         _sections["NavTranscription"] = SectionTranscription;
         _sections["NavDeepgram"] = SectionDeepgram;
         _sections["NavPolish"] = SectionPolish;
-        _sections["NavCodeDictation"] = SectionCodeDictation;
         _sections["NavCommand"] = SectionCommand;
         _sections["NavApiKeys"] = SectionApiKeys;
 
@@ -58,8 +56,6 @@ public partial class SettingsWindow : Window
         PopulateLanguages();
         PopulateModels();
         PopulateSearchEngines();
-        PopulateCodeDictationModels();
-        PopulateCodeDictationLanguages();
         PopulateDeepgramOptions();
         UpdateApiKeyStatus();
         
@@ -98,11 +94,6 @@ public partial class SettingsWindow : Window
         CommandModeCheckBox.IsChecked = _settings.CommandModeEnabled;
         CommandHotkeyTextBox.Text = FormatHotkey(_settings.CommandHotkeyModifiers);
         _commandCapturedModifiers = _settings.CommandHotkeyModifiers;
-        
-        // Code dictation
-        CodeDictationCheckBox.IsChecked = _settings.CodeDictationEnabled;
-        CodeDictationHotkeyTextBox.Text = FormatHotkey(_settings.CodeDictationHotkeyModifiers);
-        _codeDictationCapturedModifiers = _settings.CodeDictationHotkeyModifiers;
 
         // Polish settings
         PolishCheckBox.IsChecked = _settings.PolishOutput;
@@ -473,71 +464,12 @@ public partial class SettingsWindow : Window
 
     private void TranscriptionModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
     private void PolishModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateModelDescriptions();
-    private void CodeDictationModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateCodeDictationModelDescription();
     private void CommandModeModel_Changed(object sender, SelectionChangedEventArgs e) => UpdateCommandModeModelDescription();
-    
+
     private void UpdateCommandModeModelDescription()
     {
         // Update model description for command mode if needed (currently no description label)
         // This can be expanded to show model status/requirements
-    }
-    
-    private void PopulateCodeDictationModels()
-    {
-        CodeDictationModelComboBox.Items.Clear();
-        foreach (var model in ModelCatalog.CodeDictationModels)
-        {
-            var installed = _modelManager.IsModelInstalled(model);
-            var displayName = installed ? model.Name : $"{model.Name} ⬇️";
-            var item = new ComboBoxItem { Content = displayName, Tag = model.Id };
-            CodeDictationModelComboBox.Items.Add(item);
-            if (_settings.CodeDictationModelId == model.Id)
-                CodeDictationModelComboBox.SelectedItem = item;
-        }
-        if (CodeDictationModelComboBox.SelectedItem == null)
-            CodeDictationModelComboBox.SelectedIndex = 0;
-        
-        UpdateCodeDictationModelDescription();
-    }
-    
-    private void PopulateCodeDictationLanguages()
-    {
-        CodeDictationLanguageComboBox.Items.Clear();
-        foreach (var (code, name) in ModelCatalog.CodeDictationLanguages)
-        {
-            var item = new ComboBoxItem { Content = name, Tag = code };
-            CodeDictationLanguageComboBox.Items.Add(item);
-            if (_settings.CodeDictationLanguage == code)
-                CodeDictationLanguageComboBox.SelectedItem = item;
-        }
-        if (CodeDictationLanguageComboBox.SelectedItem == null)
-            CodeDictationLanguageComboBox.SelectedIndex = 0;
-    }
-    
-    private void UpdateCodeDictationModelDescription()
-    {
-        if (CodeDictationModelComboBox.SelectedItem is ComboBoxItem item && item.Tag is string id)
-        {
-            var model = ModelCatalog.GetById(id);
-            string status;
-            if (model?.Source == ModelSource.Cerebras)
-            {
-                status = CredentialManager.HasCerebrasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
-            }
-            else if (model?.Source == ModelSource.Groq)
-            {
-                status = CredentialManager.HasGroqApiKey() ? " ✓ Ready" : " ⚠️ API key required";
-            }
-            else if (model?.Source == ModelSource.OpenAI)
-            {
-                status = CredentialManager.HasApiKey() ? " ✓ Ready" : " ⚠️ API key required";
-            }
-            else
-            {
-                status = _modelManager.IsModelInstalled(model!) ? "" : " (download required)";
-            }
-            CodeDictationModelDesc.Text = (model?.Description ?? "") + status;
-        }
     }
 
     private void ManageModels_Click(object sender, RoutedEventArgs e)
@@ -557,11 +489,10 @@ public partial class SettingsWindow : Window
         SectionTranscription.Visibility = Visibility.Collapsed;
         SectionDeepgram.Visibility = Visibility.Collapsed;
         SectionPolish.Visibility = Visibility.Collapsed;
-        SectionCodeDictation.Visibility = Visibility.Collapsed;
         SectionCommand.Visibility = Visibility.Collapsed;
         SectionApiKeys.Visibility = Visibility.Collapsed;
         SectionPromptEditor.Visibility = Visibility.Visible;
-        
+
         // Load the appropriate prompt based on selected tab
         LoadCurrentPrompt();
     }
@@ -580,14 +511,14 @@ public partial class SettingsWindow : Window
     
     private void LoadCurrentPrompt()
     {
-        if (TypingModeTab == null || NotesModeTab == null || CodeDictationTab == null || PromptEditorTextBox == null) return;
-        
+        if (TypingModeTab == null || NotesModeTab == null || PromptEditorTextBox == null) return;
+
         if (TypingModeTab.IsChecked == true)
         {
             // Load typing mode prompt
             var customPrompt = _settings.CustomTypingPrompt;
-            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
-                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt 
+            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt)
+                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultTypingPrompt
                 : customPrompt;
             if (PromptModeDescription != null)
                 PromptModeDescription.Text = "Typing mode: Minimal cleanup - punctuation, grammar, self-corrections.";
@@ -596,21 +527,11 @@ public partial class SettingsWindow : Window
         {
             // Load notes mode prompt
             var customPrompt = _settings.CustomNotesPrompt;
-            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
-                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt 
+            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt)
+                ? WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt
                 : customPrompt;
             if (PromptModeDescription != null)
                 PromptModeDescription.Text = "Notes mode: Aggressive cleanup with bullets, headings, and formatting.";
-        }
-        else if (CodeDictationTab.IsChecked == true)
-        {
-            // Load code dictation prompt
-            var customPrompt = _settings.CustomCodeDictationPrompt;
-            PromptEditorTextBox.Text = string.IsNullOrWhiteSpace(customPrompt) 
-                ? WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt 
-                : customPrompt;
-            if (PromptModeDescription != null)
-                PromptModeDescription.Text = "Code dictation: Convert natural language to Python code.";
         }
     }
     
@@ -624,16 +545,12 @@ public partial class SettingsWindow : Window
         {
             PromptEditorTextBox.Text = WisperFlow.Services.Polish.OpenAIPolishService.DefaultNotesPrompt;
         }
-        else if (CodeDictationTab.IsChecked == true)
-        {
-            PromptEditorTextBox.Text = WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt;
-        }
     }
     
     private void SavePrompt_Click(object sender, RoutedEventArgs e)
     {
         var currentText = PromptEditorTextBox.Text?.Trim() ?? "";
-        
+
         if (TypingModeTab.IsChecked == true)
         {
             // Check if it's the default - if so, clear the custom prompt
@@ -658,19 +575,7 @@ public partial class SettingsWindow : Window
                 _settings.CustomNotesPrompt = currentText;
             }
         }
-        else if (CodeDictationTab.IsChecked == true)
-        {
-            // Check if it's the default - if so, clear the custom prompt
-            if (currentText == WisperFlow.Services.CodeDictation.OpenAICodeDictationService.DefaultPythonPrompt.Trim())
-            {
-                _settings.CustomCodeDictationPrompt = string.Empty;
-            }
-            else
-            {
-                _settings.CustomCodeDictationPrompt = currentText;
-            }
-        }
-        
+
         // Go back to Polish section
         SectionPromptEditor.Visibility = Visibility.Collapsed;
         SectionPolish.Visibility = Visibility.Visible;
@@ -822,71 +727,6 @@ public partial class SettingsWindow : Window
             Keyboard.ClearFocus();
         }
     }
-    
-    // ===== Code Dictation Hotkey Capture =====
-    
-    private void CodeDictationHotkeyTextBox_GotFocus(object sender, RoutedEventArgs e)
-    {
-        _isCapturingHotkey = true;
-        _codeDictationCapturedModifiers = HotkeyModifiers.None;
-        _activeHotkeyTextBox = CodeDictationHotkeyTextBox;
-        CodeDictationHotkeyTextBox.Text = "Hold modifier keys, then release...";
-    }
-
-    private void CodeDictationHotkeyTextBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        _isCapturingHotkey = false;
-        _activeHotkeyTextBox = null;
-        
-        if (_codeDictationCapturedModifiers == HotkeyModifiers.None)
-        {
-            CodeDictationHotkeyTextBox.Text = FormatHotkey(_settings.CodeDictationHotkeyModifiers);
-        }
-    }
-
-    private void CodeDictationHotkeyTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (!_isCapturingHotkey || _activeHotkeyTextBox != CodeDictationHotkeyTextBox) return;
-
-        e.Handled = true;
-        
-        // Accumulate modifier keys
-        if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
-            _codeDictationCapturedModifiers |= HotkeyModifiers.Control;
-        if (Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt))
-            _codeDictationCapturedModifiers |= HotkeyModifiers.Alt;
-        if (Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift))
-            _codeDictationCapturedModifiers |= HotkeyModifiers.Shift;
-        if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin))
-            _codeDictationCapturedModifiers |= HotkeyModifiers.Win;
-
-        if (_codeDictationCapturedModifiers != HotkeyModifiers.None)
-        {
-            CodeDictationHotkeyTextBox.Text = FormatHotkey(_codeDictationCapturedModifiers) + " (release to confirm)";
-        }
-    }
-
-    private void CodeDictationHotkeyTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
-    {
-        if (!_isCapturingHotkey || _activeHotkeyTextBox != CodeDictationHotkeyTextBox) return;
-
-        e.Handled = true;
-
-        bool anyModifierPressed = 
-            Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) ||
-            Keyboard.IsKeyDown(Key.LeftAlt) || Keyboard.IsKeyDown(Key.RightAlt) ||
-            Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift) ||
-            Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin);
-
-        if (!anyModifierPressed && _codeDictationCapturedModifiers != HotkeyModifiers.None)
-        {
-            _settings.CodeDictationHotkeyModifiers = _codeDictationCapturedModifiers;
-            CodeDictationHotkeyTextBox.Text = FormatHotkey(_codeDictationCapturedModifiers);
-            _isCapturingHotkey = false;
-            _activeHotkeyTextBox = null;
-            Keyboard.ClearFocus();
-        }
-    }
 
     private void SaveApiKey_Click(object sender, RoutedEventArgs e)
     {
@@ -1028,14 +868,6 @@ public partial class SettingsWindow : Window
         if (SearchEngineComboBox.SelectedItem is ComboBoxItem searchItem)
             _settings.CommandModeSearchEngine = searchItem.Tag?.ToString() ?? "ChatGPT";
         // CommandHotkeyModifiers is already set during capture
-
-        // Code dictation
-        _settings.CodeDictationEnabled = CodeDictationCheckBox.IsChecked ?? true;
-        if (CodeDictationModelComboBox.SelectedItem is ComboBoxItem codeModelItem)
-            _settings.CodeDictationModelId = codeModelItem.Tag?.ToString() ?? "qwen2.5-3b";
-        if (CodeDictationLanguageComboBox.SelectedItem is ComboBoxItem codeLangItem)
-            _settings.CodeDictationLanguage = codeLangItem.Tag?.ToString() ?? "python";
-        // CodeDictationHotkeyModifiers is already set during capture
 
         // Microphone
         if (MicrophoneComboBox.SelectedItem is ComboBoxItem micItem)

@@ -106,28 +106,6 @@ public class AppSettings
     /// </summary>
     public string CommandModeModelId { get; set; } = "openai-gpt4o-mini";
 
-    // ===== Code Dictation Mode Settings =====
-    
-    /// <summary>
-    /// Whether code dictation mode is enabled.
-    /// </summary>
-    public bool CodeDictationEnabled { get; set; } = true;
-
-    /// <summary>
-    /// The modifier keys for code dictation hotkey (default: Ctrl+Shift).
-    /// </summary>
-    public HotkeyModifiers CodeDictationHotkeyModifiers { get; set; } = HotkeyModifiers.Control | HotkeyModifiers.Shift;
-
-    /// <summary>
-    /// Selected model for code dictation (3B+ models only).
-    /// </summary>
-    public string CodeDictationModelId { get; set; } = "qwen2.5-3b";
-
-    /// <summary>
-    /// Programming language for code dictation output.
-    /// </summary>
-    public string CodeDictationLanguage { get; set; } = "python";
-
     // ===== Deepgram Settings =====
     
     /// <summary>
@@ -200,13 +178,6 @@ public class AppSettings
     /// Opt out of Deepgram Model Improvement Program (privacy).
     /// </summary>
     public bool DeepgramMipOptOut { get; set; } = false;
-
-    // ===== Custom Prompts =====
-    
-    /// <summary>
-    /// Custom prompt for code dictation (Python). Empty = use default.
-    /// </summary>
-    public string CustomCodeDictationPrompt { get; set; } = string.Empty;
 
     // ===== Screenshot Context =====
     

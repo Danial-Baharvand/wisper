@@ -140,13 +140,10 @@
                     <RadioButton x:Name="NavDeepgram" Style="{StaticResource SidebarButton}" 
                                  Content="Deepgram" Tag="🚀"
                                  Checked="Nav_Checked"/>
-                    <RadioButton x:Name="NavPolish" Style="{StaticResource SidebarButton}" 
+                    <RadioButton x:Name="NavPolish" Style="{StaticResource SidebarButton}"
                                  Content="Polish / LLM" Tag="✨"
                                  Checked="Nav_Checked"/>
-                    <RadioButton x:Name="NavCodeDictation" Style="{StaticResource SidebarButton}" 
-                                 Content="Code Dictation" Tag="💻"
-                                 Checked="Nav_Checked"/>
-                    <RadioButton x:Name="NavCommand" Style="{StaticResource SidebarButton}" 
+                    <RadioButton x:Name="NavCommand" Style="{StaticResource SidebarButton}"
                                  Content="Command Mode" Tag="🔮"
                                  Checked="Nav_Checked"/>
                     <RadioButton x:Name="NavApiKeys" Style="{StaticResource SidebarButton}" 
@@ -392,20 +389,14 @@
                                 <!-- Mode Selector Tabs -->
                                 <TextBlock Text="Select Mode to Edit" Style="{StaticResource OptionLabel}" Margin="0,0,0,8"/>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                                    <RadioButton x:Name="TypingModeTab" 
-                                                 Content="Typing Mode" 
+                                    <RadioButton x:Name="TypingModeTab"
+                                                 Content="Typing Mode"
                                                  GroupName="PromptMode"
                                                  IsChecked="True"
                                                  Style="{StaticResource PromptModeTab}"
                                                  Checked="PromptModeTab_Changed"/>
-                                    <RadioButton x:Name="NotesModeTab" 
-                                                 Content="Notes Mode" 
-                                                 GroupName="PromptMode"
-                                                 Style="{StaticResource PromptModeTab}"
-                                                 Checked="PromptModeTab_Changed"
-                                                 Margin="8,0,0,0"/>
-                                    <RadioButton x:Name="CodeDictationTab" 
-                                                 Content="Code Dictation" 
+                                    <RadioButton x:Name="NotesModeTab"
+                                                 Content="Notes Mode"
                                                  GroupName="PromptMode"
                                                  Style="{StaticResource PromptModeTab}"
                                                  Checked="PromptModeTab_Changed"
@@ -468,54 +459,7 @@
                             </StackPanel>
                         </Border>
                     </StackPanel>
-                    
-                    <!-- Code Dictation Section -->
-                    <StackPanel x:Name="SectionCodeDictation" Visibility="Collapsed">
-                        <TextBlock Text="Code Dictation" Style="{StaticResource SectionTitle}"/>
-                        
-                        <Border Style="{StaticResource CardBorder}">
-                            <StackPanel>
-                                <CheckBox x:Name="CodeDictationCheckBox" Style="{StaticResource SmallToggle}"
-                                          Content="Enable code dictation mode"/>
-                                
-                                <TextBlock Text="Hotkey" Style="{StaticResource OptionLabel}" Margin="0,12,0,8"/>
-                                <TextBox x:Name="CodeDictationHotkeyTextBox" Style="{StaticResource ModernTextBox}"
-                                         Text="Ctrl + Shift" IsReadOnly="True" Cursor="Hand"
-                                         Width="200" HorizontalAlignment="Left"
-                                         PreviewKeyDown="CodeDictationHotkeyTextBox_PreviewKeyDown"
-                                         PreviewKeyUp="CodeDictationHotkeyTextBox_PreviewKeyUp"
-                                         GotFocus="CodeDictationHotkeyTextBox_GotFocus"
-                                         LostFocus="CodeDictationHotkeyTextBox_LostFocus"
-                                         Margin="0,0,0,16"/>
-                                
-                                <TextBlock Text="Code Model (3B+ recommended)" Style="{StaticResource OptionLabel}"/>
-                                <ComboBox x:Name="CodeDictationModelComboBox" 
-                                          Style="{StaticResource ModernComboBox}"
-                                          SelectionChanged="CodeDictationModel_Changed"/>
-                                <TextBlock x:Name="CodeDictationModelDesc"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           FontSize="11" TextWrapping="Wrap" Margin="0,8,0,16"/>
-                                
-                                <TextBlock Text="Language" Style="{StaticResource OptionLabel}"/>
-                                <ComboBox x:Name="CodeDictationLanguageComboBox" 
-                                          Style="{StaticResource ModernComboBox}"
-                                          Width="200" HorizontalAlignment="Left" Margin="0,0,0,16"/>
-                                
-                                <Border Background="{StaticResource TertiaryBrush}" CornerRadius="8" Padding="12">
-                                    <TextBlock TextWrapping="Wrap" FontSize="11">
-                                        <Run Foreground="{StaticResource TextSecondaryBrush}">Examples:</Run>
-                                        <LineBreak/>
-                                        <Run Foreground="{StaticResource TextSecondaryBrush}">"for i in range 10" → </Run>
-                                        <Run Foreground="{StaticResource AccentBrush}" FontFamily="Consolas">for i in range(10):</Run>
-                                        <LineBreak/>
-                                        <Run Foreground="{StaticResource TextSecondaryBrush}">"define function add" → </Run>
-                                        <Run Foreground="{StaticResource AccentBrush}" FontFamily="Consolas">def add():</Run>
-                                    </TextBlock>
-                                </Border>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                    
+
                     <!-- Command Mode Section -->
                     <StackPanel x:Name="SectionCommand" Visibility="Collapsed">
                         <TextBlock Text="Command Mode" Style="{StaticResource SectionTitle}"/>
